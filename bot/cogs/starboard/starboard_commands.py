@@ -14,6 +14,7 @@ from nextcord.ext import commands
 
 from bot.cogs.starboard.starboard_utils import parse_emoji_input
 from bot.utils import messages
+from bot.utils.views import EmbedPaginatorView
 from db.helpers import starboard_helper
 
 # Discord caps autocomplete labels at 100 chars and 25 choices per response.
@@ -121,9 +122,11 @@ class StarboardCommands(commands.Cog):
             return await interaction.send(
                 embed=messages.info('No starboards configured for this server yet.'),
                 ephemeral=True)
-        # interaction.send accepts at most 10 embeds; that bound is far beyond any
-        # realistic board count but keeps a pathological guild from erroring.
-        await interaction.send(embeds=build_list_embeds(configs)[:10], ephemeral=True)
+        # One board per page, paged with ◀️/▶️ buttons — no 10-embed cap. We reuse
+        # build_list_embeds as the per-board renderer (a single config yields a
+        # single embed), so list and any future bulk render stay in sync.
+        embeds = [build_list_embeds([config])[0] for config in configs]
+        await EmbedPaginatorView(embeds, noun='Board').send(interaction)
 
     @starboard.subcommand(name='edit', description='Edit an existing starboard.')
     async def edit(self, interaction: Interaction,
