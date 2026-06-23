@@ -17,5 +17,7 @@ from db.model.user_channel_settings import *
 from db.model.user_settings import *
 from db.model.activity_role import *
 from db.model.polls import *
+from db.model.starboard_config import *
+from db.model.starboard_entry import *
 
 alembic = Alembic(DB, 'db/migrations')
