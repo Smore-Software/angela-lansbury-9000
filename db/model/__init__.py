@@ -1,3 +1,5 @@
+import os
+
 from sqla_wrapper import SQLAlchemy
 
-DB = SQLAlchemy('sqlite:///bumper-db.sqlite')
+DB = SQLAlchemy(os.environ.get('DATABASE_URL', 'sqlite:///bumper-db.sqlite'))
