@@ -102,21 +102,15 @@ def test_emoji_display_custom():
 
 
 def _config(id=1, target_channel_id=10, emoji='⭐', emoji_id=None,
-            threshold=5, enabled=True, name=None):
+            threshold=5, enabled=True):
     return SimpleNamespace(id=id, target_channel_id=target_channel_id, emoji=emoji,
-                           emoji_id=emoji_id, threshold=threshold, enabled=enabled,
-                           name=name)
+                           emoji_id=emoji_id, threshold=threshold, enabled=enabled)
 
 
-def test_board_summary_standard_format_with_name():
-    # Standardized format: `Name #channel | emoji | **≥ N**`, id omitted.
-    summary = sc.board_summary(_config(name='Hall of Fame', threshold=7), '<#10>')
-    assert summary == '(Hall of Fame) <#10> | ⭐ | **≥ 7**'
-
-
-def test_board_summary_omits_name_when_absent():
-    summary = sc.board_summary(_config(emoji='🔥', threshold=3), '#general')
-    assert summary == '#general | 🔥 | **≥ 3**'
+def test_board_summary_standard_format():
+    # Standardized format: `#channel | emoji | **≥ N**`, id omitted.
+    summary = sc.board_summary(_config(threshold=7), '<#10>')
+    assert summary == '<#10> | ⭐ | **≥ 7**'
 
 
 def test_board_summary_plain_drops_markdown_bold():
@@ -129,18 +123,13 @@ def test_board_label_includes_channel_emoji_threshold():
     assert label == '#general | ⭐ | ≥ 7'
 
 
-def test_board_label_includes_name_when_set():
-    label = sc.board_label(_config(name='Stars', threshold=5), channel_name='general')
-    assert label == '(Stars) #general | ⭐ | ≥ 5'
-
-
 def test_board_label_uses_channel_mention_when_name_unknown():
     label = sc.board_label(_config(target_channel_id=42, emoji='⭐', threshold=3))
     assert label == '<#42> | ⭐ | ≥ 3'
 
 
 def test_board_label_truncated_to_limit():
-    label = sc.board_label(_config(name='x' * 200))
+    label = sc.board_label(_config(), channel_name='x' * 200)
     assert len(label) <= sc._AUTOCOMPLETE_LABEL_MAX
 
 
@@ -148,14 +137,14 @@ def test_board_label_truncated_to_limit():
 
 
 def test_build_list_embeds_single_embed():
-    configs = [_config(id=1, name='Star'), _config(id=2, emoji='🔥', enabled=False)]
+    configs = [_config(id=1), _config(id=2, emoji='🔥', enabled=False)]
     embeds = sc.build_list_embeds(configs)
     assert len(embeds) == 1
     lines = embeds[0].description.splitlines()
     assert len(lines) == 2
     # Numbered Markdown list using the standardized pipe format; no board id and
     # no legacy "·" bullet separators.
-    assert lines[0] == '1. (Star) <#10> | ⭐ | **≥ 5**'
+    assert lines[0] == '1. <#10> | ⭐ | **≥ 5**'
     assert '·' not in embeds[0].description
     # Disabled boards are flagged with a trailing pipe segment.
     assert lines[1].endswith('| disabled')
@@ -230,13 +219,12 @@ def test_add_config_persists_and_invalidates_cache():
     assert starboard_helper.get_enabled_configs(1) == []
     cfg = starboard_helper.add_config(
         guild_id=1, target_channel_id=10, emoji='book', emoji_id=123,
-        threshold=4, name='Books')
+        threshold=4)
     # DB state reflects what /starboard add would persist (custom emoji → id set).
     stored = starboard_helper.get_config(cfg.id)
     assert stored.emoji == 'book'
     assert stored.emoji_id == 123
     assert stored.threshold == 4
-    assert stored.name == 'Books'
     # The primed cache was invalidated, so the next read sees the new board.
     assert len(starboard_helper.get_enabled_configs(1)) == 1
 

@@ -35,14 +35,12 @@ def emoji_display(config) -> str:
 
 def board_summary(config, channel_ref: str, *, markdown: bool = True) -> str:
     """Canonical one-line board description, standardized across the feature set
-    (list, autocomplete, confirmations): ``[(Name) ]channel | emoji | ≥ N`` with the
-    threshold bolded in markdown contexts. The friendly name (in parentheses) is
-    included only when set (never a placeholder), and the board id is omitted — it is
+    (list, autocomplete, confirmations): ``channel | emoji | ≥ N`` with the
+    threshold bolded in markdown contexts. The board id is omitted — it is
     meaningless to users. ``channel_ref`` is the already-rendered channel: a
     ``<#id>`` mention in embeds/messages, a plain ``#name`` in autocomplete labels."""
     threshold = f'**≥ {config.threshold}**' if markdown else f'≥ {config.threshold}'
-    prefix = f'({config.name}) ' if config.name else ''
-    return f'{prefix}{channel_ref} | {emoji_display(config)} | {threshold}'
+    return f'{channel_ref} | {emoji_display(config)} | {threshold}'
 
 
 def board_label(config, channel_name: str | None = None) -> str:
@@ -101,9 +99,7 @@ class StarboardCommands(commands.Cog):
                   emoji: str = SlashOption(
                       name='emoji', description='The trigger emoji (unicode or custom).'),
                   threshold: int = SlashOption(
-                      name='threshold', description='Reactions needed to repost.', min_value=1),
-                  name: str = SlashOption(
-                      name='name', description='Optional friendly label.', required=False)):
+                      name='threshold', description='Reactions needed to repost.', min_value=1)):
         parsed = self._parse_emoji(emoji)
         if parsed is None:
             return await interaction.send(
@@ -125,7 +121,7 @@ class StarboardCommands(commands.Cog):
 
         config = starboard_helper.add_config(
             guild_id=interaction.guild_id, target_channel_id=channel.id,
-            emoji=emoji_name, emoji_id=emoji_id, threshold=threshold, name=name)
+            emoji=emoji_name, emoji_id=emoji_id, threshold=threshold)
 
         confirmation = f'Starboard added: {board_summary(config, channel.mention)}'
         await interaction.send(
@@ -157,9 +153,7 @@ class StarboardCommands(commands.Cog):
                    channel: TextChannel = SlashOption(
                        name='channel', description='New destination channel.', required=False),
                    emoji: str = SlashOption(
-                       name='emoji', description='New trigger emoji.', required=False),
-                   name: str = SlashOption(
-                       name='name', description='New friendly label.', required=False)):
+                       name='emoji', description='New trigger emoji.', required=False)):
         config = self._resolve_board(interaction, starboard)
         if config is None:
             return await interaction.send(
@@ -172,8 +166,6 @@ class StarboardCommands(commands.Cog):
             updates['enabled'] = enabled == '✅'
         if channel is not None:
             updates['target_channel_id'] = channel.id
-        if name is not None:
-            updates['name'] = name
         if emoji is not None:
             parsed = self._parse_emoji(emoji)
             if parsed is None:

@@ -25,14 +25,13 @@ def _clear_cache():
 
 def test_add_and_read_config():
     cfg = starboard_helper.add_config(
-        guild_id=1, target_channel_id=10, emoji='⭐', threshold=5, name='Star')
+        guild_id=1, target_channel_id=10, emoji='⭐', threshold=5)
     assert cfg.id is not None
     got = starboard_helper.get_config(cfg.id)
     assert got is not None
     assert got.emoji == '⭐'
     assert got.target_channel_id == 10
     assert got.threshold == 5
-    assert got.name == 'Star'
     assert got.enabled is True
 
 

@@ -13,4 +13,3 @@ class StarboardConfig(DB.Model):
     emoji_id: Mapped[int] = mapped_column(nullable=True)  # set only for custom emoji
     threshold: Mapped[int] = mapped_column(default=5)
     enabled: Mapped[bool] = mapped_column(default=True)
-    name: Mapped[str] = mapped_column(nullable=True)      # friendly label for list/autocomplete

@@ -69,7 +69,7 @@ def find_duplicate_config(guild_id: int, target_channel_id: int, emoji: str,
 
 def add_config(guild_id: int, target_channel_id: int, emoji: str,
                emoji_id: Optional[int] = None, threshold: int = 5,
-               enabled: bool = True, name: Optional[str] = None) -> StarboardConfig:
+               enabled: bool = True) -> StarboardConfig:
     config = StarboardConfig(
         guild_id=guild_id,
         target_channel_id=target_channel_id,
@@ -77,7 +77,6 @@ def add_config(guild_id: int, target_channel_id: int, emoji: str,
         emoji_id=emoji_id,
         threshold=threshold,
         enabled=enabled,
-        name=name,
     )
     DB.s.add(config)
     DB.s.commit()

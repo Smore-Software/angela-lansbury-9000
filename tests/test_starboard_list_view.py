@@ -162,7 +162,7 @@ async def test_list_empty_guild_sends_info_without_view():
 
 @pytest.mark.asyncio
 async def test_list_single_board_pages_without_nav():
-    _add(name='Solo')
+    _add()
     cog = sc.StarboardCommands(bot=None)
     interaction = FakeInteraction(guild_id=1)
     await cog.list.callback(cog, interaction)
@@ -179,7 +179,7 @@ async def test_list_boards_within_one_page_have_no_nav():
     # A handful of boards (≤ page size) render on a single page: one embed with a
     # field per board and no nav buttons.
     for i in range(3):
-        _add(name=f'Board {i}', target_channel_id=10 + i)
+        _add(target_channel_id=10 + i)
     cog = sc.StarboardCommands(bot=None)
     interaction = FakeInteraction(guild_id=1)
     await cog.list.callback(cog, interaction)
@@ -197,7 +197,7 @@ async def test_list_paginates_when_boards_exceed_page_size():
     # and the paginator gains nav buttons.
     total = sc._LIST_BOARDS_PER_PAGE + 2
     for i in range(total):
-        _add(name=f'Board {i}', target_channel_id=10 + i)
+        _add(target_channel_id=10 + i)
     cog = sc.StarboardCommands(bot=None)
     interaction = FakeInteraction(guild_id=1)
     await cog.list.callback(cog, interaction)
