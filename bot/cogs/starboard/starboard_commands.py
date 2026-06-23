@@ -20,8 +20,9 @@ from db.helpers import starboard_helper
 # Discord caps autocomplete labels at 100 chars and 25 choices per response.
 _AUTOCOMPLETE_LABEL_MAX = 100
 _AUTOCOMPLETE_CHOICE_MAX = 25
-# Discord caps an embed at 25 fields; we render one field per board.
-_LIST_FIELDS_PER_EMBED = 25
+# Boards per page in `/starboard list` (one Markdown list item per board). The
+# paginator adds ◀️/▶️ buttons only when there is more than one page.
+_LIST_BOARDS_PER_PAGE = 10
 
 
 def emoji_display(config) -> str:
@@ -32,36 +33,45 @@ def emoji_display(config) -> str:
     return config.emoji
 
 
+def board_summary(config, channel_ref: str, *, markdown: bool = True) -> str:
+    """Canonical one-line board description, standardized across the feature set
+    (list, autocomplete, confirmations): ``[(Name) ]channel | emoji | ≥ N`` with the
+    threshold bolded in markdown contexts. The friendly name (in parentheses) is
+    included only when set (never a placeholder), and the board id is omitted — it is
+    meaningless to users. ``channel_ref`` is the already-rendered channel: a
+    ``<#id>`` mention in embeds/messages, a plain ``#name`` in autocomplete labels."""
+    threshold = f'**≥ {config.threshold}**' if markdown else f'≥ {config.threshold}'
+    prefix = f'({config.name}) ' if config.name else ''
+    return f'{prefix}{channel_ref} | {emoji_display(config)} | {threshold}'
+
+
 def board_label(config, channel_name: str | None = None) -> str:
-    """Short, plain-text label for autocomplete: the friendly name when set, else
-    ``#channel · emoji · ≥N``. Falls back to a channel mention when the channel
-    name could not be resolved. Truncated to Discord's autocomplete label limit."""
-    if config.name:
-        label = config.name
-    else:
-        channel = f'#{channel_name}' if channel_name else f'<#{config.target_channel_id}>'
-        label = f'{channel} · {emoji_display(config)} · ≥{config.threshold}'
+    """Plain-text autocomplete label in the standardized board format. Uses the
+    resolved ``#channel-name`` when known, falling back to a channel mention.
+    Truncated to Discord's autocomplete label limit."""
+    channel_ref = f'#{channel_name}' if channel_name else f'<#{config.target_channel_id}>'
+    label = board_summary(config, channel_ref, markdown=False)
     if len(label) > _AUTOCOMPLETE_LABEL_MAX:
         label = label[:_AUTOCOMPLETE_LABEL_MAX - 1] + '…'
     return label
 
 
 def build_list_embeds(configs) -> list:
-    """Build one or more embeds describing a guild's boards, chunked to stay under
-    Discord's 25-fields-per-embed limit (``list`` paginates only when needed)."""
+    """Build one embed per page of a guild's boards as a numbered Markdown list,
+    chunked at ``_LIST_BOARDS_PER_PAGE`` boards each (``list`` paginates only when
+    needed). Each item uses the standardized board format; disabled boards carry a
+    trailing ``| disabled`` so they stay distinguishable."""
     embeds = []
-    for start in range(0, len(configs), _LIST_FIELDS_PER_EMBED):
-        chunk = configs[start:start + _LIST_FIELDS_PER_EMBED]
-        embed = nextcord.Embed(color=messages.INFO_COLOR, title='Starboards')
-        for config in chunk:
-            status = 'enabled' if config.enabled else 'disabled'
-            name = config.name or '(unnamed)'
-            embed.add_field(
-                name=f'#{config.id} · {name}',
-                value=(f'<#{config.target_channel_id}> · {emoji_display(config)} · '
-                       f'≥{config.threshold} · {status}'),
-                inline=False,
-            )
+    for start in range(0, len(configs), _LIST_BOARDS_PER_PAGE):
+        chunk = configs[start:start + _LIST_BOARDS_PER_PAGE]
+        lines = []
+        for offset, config in enumerate(chunk):
+            summary = board_summary(config, f'<#{config.target_channel_id}>')
+            if not config.enabled:
+                summary += ' | disabled'
+            lines.append(f'{start + offset + 1}. {summary}')
+        embed = nextcord.Embed(color=messages.INFO_COLOR, title='Starboards',
+                               description='\n'.join(lines))
         embeds.append(embed)
     return embeds
 
@@ -106,11 +116,18 @@ class StarboardCommands(commands.Cog):
                                      'Pick one of this server\'s own emoji.'),
                 ephemeral=True)
 
-        starboard_helper.add_config(
+        if starboard_helper.find_duplicate_config(
+                interaction.guild_id, channel.id, emoji_name, emoji_id) is not None:
+            return await interaction.send(
+                embed=messages.error(
+                    f'A starboard for {channel.mention} with {emoji} already exists.'),
+                ephemeral=True)
+
+        config = starboard_helper.add_config(
             guild_id=interaction.guild_id, target_channel_id=channel.id,
             emoji=emoji_name, emoji_id=emoji_id, threshold=threshold, name=name)
 
-        confirmation = f'Starboard added: {channel.mention} · {emoji} · ≥{threshold}.'
+        confirmation = f'Starboard added: {board_summary(config, channel.mention)}'
         await interaction.send(
             embed=messages.success(confirmation + self._perms_warning(interaction, channel)),
             ephemeral=True)
@@ -122,11 +139,10 @@ class StarboardCommands(commands.Cog):
             return await interaction.send(
                 embed=messages.info('No starboards configured for this server yet.'),
                 ephemeral=True)
-        # One board per page, paged with ◀️/▶️ buttons — no 10-embed cap. We reuse
-        # build_list_embeds as the per-board renderer (a single config yields a
-        # single embed), so list and any future bulk render stay in sync.
-        embeds = [build_list_embeds([config])[0] for config in configs]
-        await EmbedPaginatorView(embeds, noun='Board').send(interaction)
+        # Up to _LIST_BOARDS_PER_PAGE boards per page, paged with ◀️/▶️ buttons.
+        # The paginator drops the buttons when there is only one page.
+        embeds = build_list_embeds(configs)
+        await EmbedPaginatorView(embeds, noun='Page').send(interaction)
 
     @starboard.subcommand(name='edit', description='Edit an existing starboard.')
     async def edit(self, interaction: Interaction,
@@ -177,8 +193,24 @@ class StarboardCommands(commands.Cog):
                 embed=messages.error('Nothing to update — provide at least one field.'),
                 ephemeral=True)
 
-        starboard_helper.update_config(config.id, **updates)
-        await interaction.send(embed=messages.success('Starboard updated.'), ephemeral=True)
+        # Changing the channel or emoji must not collide with another board that
+        # already targets that channel+emoji on this guild.
+        if 'target_channel_id' in updates or 'emoji' in updates:
+            new_channel = updates.get('target_channel_id', config.target_channel_id)
+            new_emoji = updates.get('emoji', config.emoji)
+            new_emoji_id = updates.get('emoji_id', config.emoji_id)
+            if starboard_helper.find_duplicate_config(
+                    interaction.guild_id, new_channel, new_emoji, new_emoji_id,
+                    exclude_id=config.id) is not None:
+                return await interaction.send(
+                    embed=messages.error(
+                        'Another starboard already targets that channel with that emoji.'),
+                    ephemeral=True)
+
+        updated = starboard_helper.update_config(config.id, **updates)
+        summary = board_summary(updated, f'<#{updated.target_channel_id}>')
+        await interaction.send(
+            embed=messages.success(f'Starboard updated: {summary}'), ephemeral=True)
 
     @starboard.subcommand(name='remove', description='Remove a starboard.')
     async def remove(self, interaction: Interaction,
@@ -188,17 +220,20 @@ class StarboardCommands(commands.Cog):
         if config is None:
             return await interaction.send(
                 embed=messages.error('No such starboard on this server.'), ephemeral=True)
+        summary = board_summary(config, f'<#{config.target_channel_id}>')
         starboard_helper.remove_config(config.id)
         await interaction.send(
-            embed=messages.success('Starboard removed.'), ephemeral=True)
+            embed=messages.success(f'Starboard removed: {summary}'), ephemeral=True)
 
     @edit.on_autocomplete('starboard')
     async def _edit_autocomplete(self, interaction: Interaction, focused: str):
-        await interaction.response.send_autocomplete(self._board_choices(interaction))
+        await interaction.response.send_autocomplete(
+            self._board_choices(interaction, focused))
 
     @remove.on_autocomplete('starboard')
     async def _remove_autocomplete(self, interaction: Interaction, focused: str):
-        await interaction.response.send_autocomplete(self._board_choices(interaction))
+        await interaction.response.send_autocomplete(
+            self._board_choices(interaction, focused))
 
     # --- internal helpers ---------------------------------------------------
 
@@ -234,13 +269,21 @@ class StarboardCommands(commands.Cog):
         return config
 
     @staticmethod
-    def _board_choices(interaction) -> dict:
-        """``{label: str(id)}`` choices for autocomplete over the guild's boards."""
+    def _board_choices(interaction, focused: str = '') -> dict:
+        """``{label: str(id)}`` choices for autocomplete over the guild's boards,
+        filtered by channel name when the user has typed something (case-insensitive
+        substring). Boards whose channel can't be resolved are dropped from a
+        filtered search since there is no name to match against."""
         configs = starboard_helper.get_configs(interaction.guild_id)
+        query = (focused or '').strip().lower()
         choices = {}
-        for config in configs[:_AUTOCOMPLETE_CHOICE_MAX]:
+        for config in configs:
             channel = interaction.guild.get_channel(config.target_channel_id) \
                 if interaction.guild else None
             channel_name = channel.name if channel else None
+            if query and (channel_name is None or query not in channel_name.lower()):
+                continue
             choices[board_label(config, channel_name)] = str(config.id)
+            if len(choices) >= _AUTOCOMPLETE_CHOICE_MAX:
+                break
         return choices

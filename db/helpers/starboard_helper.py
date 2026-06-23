@@ -46,6 +46,27 @@ def get_config(config_id: int) -> Optional[StarboardConfig]:
     return DB.s.first(StarboardConfig, id=config_id)
 
 
+def find_duplicate_config(guild_id: int, target_channel_id: int, emoji: str,
+                          emoji_id: Optional[int],
+                          exclude_id: Optional[int] = None) -> Optional[StarboardConfig]:
+    """Return an existing config for this guild with the same target channel AND
+    emoji, or ``None``. Custom emoji are matched by id, unicode by string (the same
+    rule as ``emoji_matches``). ``exclude_id`` skips the row being edited so an edit
+    does not collide with itself. Used to keep two boards from sharing a
+    channel+emoji, which would be redundant and confusing to manage."""
+    for config in get_configs(guild_id):
+        if exclude_id is not None and config.id == exclude_id:
+            continue
+        if config.target_channel_id != target_channel_id:
+            continue
+        if emoji_id is not None:
+            if config.emoji_id == emoji_id:
+                return config
+        elif config.emoji_id is None and config.emoji == emoji:
+            return config
+    return None
+
+
 def add_config(guild_id: int, target_channel_id: int, emoji: str,
                emoji_id: Optional[int] = None, threshold: int = 5,
                enabled: bool = True, name: Optional[str] = None) -> StarboardConfig:

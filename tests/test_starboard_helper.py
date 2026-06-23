@@ -57,6 +57,47 @@ def test_get_config_missing_returns_none():
     assert starboard_helper.get_config(99999) is None
 
 
+# --- find_duplicate_config (channel + emoji uniqueness) ---------------------
+
+
+def test_find_duplicate_config_matches_same_channel_and_unicode_emoji():
+    existing = starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐')
+    dup = starboard_helper.find_duplicate_config(1, 10, '⭐', None)
+    assert dup is not None and dup.id == existing.id
+
+
+def test_find_duplicate_config_none_when_channel_differs():
+    starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐')
+    assert starboard_helper.find_duplicate_config(1, 11, '⭐', None) is None
+
+
+def test_find_duplicate_config_none_when_emoji_differs():
+    starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐')
+    assert starboard_helper.find_duplicate_config(1, 10, '🔥', None) is None
+
+
+def test_find_duplicate_config_matches_custom_emoji_by_id_not_name():
+    existing = starboard_helper.add_config(
+        guild_id=1, target_channel_id=10, emoji='book', emoji_id=123)
+    # Same id, different stored name still collides; a unicode lookup does not.
+    dup = starboard_helper.find_duplicate_config(1, 10, 'renamed', 123)
+    assert dup is not None and dup.id == existing.id
+    assert starboard_helper.find_duplicate_config(1, 10, 'book', None) is None
+
+
+def test_find_duplicate_config_excludes_self():
+    cfg = starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐')
+    # The row being edited is skipped so it doesn't collide with itself.
+    assert starboard_helper.find_duplicate_config(
+        1, 10, '⭐', None, exclude_id=cfg.id) is None
+
+
+def test_find_duplicate_config_scoped_to_guild():
+    starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐')
+    # Same channel+emoji in another guild is not a duplicate.
+    assert starboard_helper.find_duplicate_config(2, 10, '⭐', None) is None
+
+
 # --- emoji_matches (canonical matcher) --------------------------------------
 
 

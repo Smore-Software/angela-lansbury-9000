@@ -171,25 +171,46 @@ async def test_list_single_board_pages_without_nav():
     assert isinstance(view, EmbedPaginatorView)
     assert payload['ephemeral'] is True
     assert view.children == []  # single board → no nav buttons
-    assert payload['embed'].footer.text == 'Board 1/1'
+    assert payload['embed'].footer.text == 'Page 1/1'
 
 
 @pytest.mark.asyncio
-async def test_list_multi_board_paginates_one_per_page():
-    _add(name='First', target_channel_id=10)
-    _add(name='Second', target_channel_id=11)
-    _add(name='Third', target_channel_id=12)
+async def test_list_boards_within_one_page_have_no_nav():
+    # A handful of boards (≤ page size) render on a single page: one embed with a
+    # field per board and no nav buttons.
+    for i in range(3):
+        _add(name=f'Board {i}', target_channel_id=10 + i)
     cog = sc.StarboardCommands(bot=None)
     interaction = FakeInteraction(guild_id=1)
     await cog.list.callback(cog, interaction)
     payload = interaction.sent[0]
     view = payload['view']
-    # One board per page (one field each), three pages, no 10-embed cap involved.
-    assert len(view.embeds) == 3
-    assert all(len(embed.fields) == 1 for embed in view.embeds)
-    assert payload['embed'].footer.text == 'Board 1/3'
+    assert len(view.embeds) == 1
+    assert len(view.embeds[0].description.splitlines()) == 3
+    assert view.children == []  # one page → no nav buttons
+    assert payload['embed'].footer.text == 'Page 1/1'
+
+
+@pytest.mark.asyncio
+async def test_list_paginates_when_boards_exceed_page_size():
+    # More than one page's worth of boards splits into pages of _LIST_BOARDS_PER_PAGE,
+    # and the paginator gains nav buttons.
+    total = sc._LIST_BOARDS_PER_PAGE + 2
+    for i in range(total):
+        _add(name=f'Board {i}', target_channel_id=10 + i)
+    cog = sc.StarboardCommands(bot=None)
+    interaction = FakeInteraction(guild_id=1)
+    await cog.list.callback(cog, interaction)
+    payload = interaction.sent[0]
+    view = payload['view']
+    # Two pages: a full first page, the remainder on the second.
+    assert len(view.embeds) == 2
+    assert len(view.embeds[0].description.splitlines()) == sc._LIST_BOARDS_PER_PAGE
+    assert len(view.embeds[1].description.splitlines()) == 2
+    assert {str(c.emoji) for c in view.children} == {'◀️', '▶️'}
+    assert payload['embed'].footer.text == 'Page 1/2'
     # Wrap-around paging works through the live view the command handed off.
     nav = FakeInteraction()
     await view.previous_page.callback(nav)
-    assert view.current_index == 2
-    assert nav.edited[-1]['embed'].footer.text == 'Board 3/3'
+    assert view.current_index == 1
+    assert nav.edited[-1]['embed'].footer.text == 'Page 2/2'

@@ -98,7 +98,7 @@ def test_emoji_display_custom():
     assert sc.emoji_display(config) == '<:book:123>'
 
 
-# --- board_label ------------------------------------------------------------
+# --- board_summary / board_label --------------------------------------------
 
 
 def _config(id=1, target_channel_id=10, emoji='⭐', emoji_id=None,
@@ -108,18 +108,35 @@ def _config(id=1, target_channel_id=10, emoji='⭐', emoji_id=None,
                            name=name)
 
 
-def test_board_label_prefers_friendly_name():
-    assert sc.board_label(_config(name='Hall of Fame')) == 'Hall of Fame'
+def test_board_summary_standard_format_with_name():
+    # Standardized format: `Name #channel | emoji | **≥ N**`, id omitted.
+    summary = sc.board_summary(_config(name='Hall of Fame', threshold=7), '<#10>')
+    assert summary == '(Hall of Fame) <#10> | ⭐ | **≥ 7**'
 
 
-def test_board_label_falls_back_to_channel_name_emoji_threshold():
+def test_board_summary_omits_name_when_absent():
+    summary = sc.board_summary(_config(emoji='🔥', threshold=3), '#general')
+    assert summary == '#general | 🔥 | **≥ 3**'
+
+
+def test_board_summary_plain_drops_markdown_bold():
+    summary = sc.board_summary(_config(threshold=4), '#general', markdown=False)
+    assert summary == '#general | ⭐ | ≥ 4'
+
+
+def test_board_label_includes_channel_emoji_threshold():
     label = sc.board_label(_config(emoji='⭐', threshold=7), channel_name='general')
-    assert label == '#general · ⭐ · ≥7'
+    assert label == '#general | ⭐ | ≥ 7'
+
+
+def test_board_label_includes_name_when_set():
+    label = sc.board_label(_config(name='Stars', threshold=5), channel_name='general')
+    assert label == '(Stars) #general | ⭐ | ≥ 5'
 
 
 def test_board_label_uses_channel_mention_when_name_unknown():
     label = sc.board_label(_config(target_channel_id=42, emoji='⭐', threshold=3))
-    assert label == '<#42> · ⭐ · ≥3'
+    assert label == '<#42> | ⭐ | ≥ 3'
 
 
 def test_board_label_truncated_to_limit():
@@ -134,23 +151,75 @@ def test_build_list_embeds_single_embed():
     configs = [_config(id=1, name='Star'), _config(id=2, emoji='🔥', enabled=False)]
     embeds = sc.build_list_embeds(configs)
     assert len(embeds) == 1
-    embed = embeds[0]
-    assert len(embed.fields) == 2
-    # Disabled boards are flagged in their value.
-    assert any('disabled' in f.value for f in embed.fields)
-    assert any('enabled' in f.value for f in embed.fields)
+    lines = embeds[0].description.splitlines()
+    assert len(lines) == 2
+    # Numbered Markdown list using the standardized pipe format; no board id and
+    # no legacy "·" bullet separators.
+    assert lines[0] == '1. (Star) <#10> | ⭐ | **≥ 5**'
+    assert '·' not in embeds[0].description
+    # Disabled boards are flagged with a trailing pipe segment.
+    assert lines[1].endswith('| disabled')
 
 
-def test_build_list_embeds_paginates_past_field_limit():
-    configs = [_config(id=i) for i in range(sc._LIST_FIELDS_PER_EMBED + 3)]
+def test_build_list_embeds_paginates_past_page_size():
+    configs = [_config(id=i) for i in range(sc._LIST_BOARDS_PER_PAGE + 3)]
     embeds = sc.build_list_embeds(configs)
     assert len(embeds) == 2
-    assert len(embeds[0].fields) == sc._LIST_FIELDS_PER_EMBED
-    assert len(embeds[1].fields) == 3
+    assert len(embeds[0].description.splitlines()) == sc._LIST_BOARDS_PER_PAGE
+    assert len(embeds[1].description.splitlines()) == 3
+    # Numbering is continuous across pages.
+    assert embeds[1].description.splitlines()[0].startswith(
+        f'{sc._LIST_BOARDS_PER_PAGE + 1}. ')
 
 
 def test_build_list_embeds_empty():
     assert sc.build_list_embeds([]) == []
+
+
+# --- _board_choices autocomplete filtering ----------------------------------
+
+
+class _FakeGuild:
+    def __init__(self, channels):
+        self._channels = channels  # {channel_id: name}
+
+    def get_channel(self, cid):
+        name = self._channels.get(cid)
+        return SimpleNamespace(name=name) if name else None
+
+
+class _FakeAcInteraction:
+    def __init__(self, guild_id, channels):
+        self.guild_id = guild_id
+        self.guild = _FakeGuild(channels)
+
+
+def test_board_choices_filters_by_channel_name():
+    book = starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐')
+    starboard_helper.add_config(guild_id=1, target_channel_id=11, emoji='🔥')
+    interaction = _FakeAcInteraction(1, {10: 'book-club', 11: 'memes'})
+    choices = sc.StarboardCommands._board_choices(interaction, 'book')
+    assert list(choices.values()) == [str(book.id)]
+
+
+def test_board_choices_no_query_returns_all():
+    starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐')
+    starboard_helper.add_config(guild_id=1, target_channel_id=11, emoji='🔥')
+    interaction = _FakeAcInteraction(1, {10: 'book-club', 11: 'memes'})
+    assert len(sc.StarboardCommands._board_choices(interaction)) == 2
+
+
+def test_board_choices_filter_is_case_insensitive():
+    book = starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐')
+    interaction = _FakeAcInteraction(1, {10: 'Book-Club'})
+    choices = sc.StarboardCommands._board_choices(interaction, 'BOOK')
+    assert list(choices.values()) == [str(book.id)]
+
+
+def test_board_choices_drops_unresolved_channels_when_filtering():
+    starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐')
+    interaction = _FakeAcInteraction(1, {})  # channel can't be resolved
+    assert sc.StarboardCommands._board_choices(interaction, 'book') == {}
 
 
 # --- create/update/remove through the helper (DB + cache invalidation) ------
