@@ -14,7 +14,7 @@
       </libraries>
     </data-source>
     <data-source source="LOCAL" name="bumper-db.sqlite" uuid="da4ca2f2-2885-4606-b7fa-1d7cf2a9c6ce">
-      <driver-ref>sqlite.xerial</driver-ref>
+      <driver-ref>411394e2-38ed-43e1-813d-8a90ae5ea45a</driver-ref>
       <synchronize>true</synchronize>
       <jdbc-driver>org.sqlite.JDBC</jdbc-driver>
       <jdbc-url>jdbc:sqlite:$PROJECT_DIR$/bumper-db.sqlite.bak</jdbc-url>
