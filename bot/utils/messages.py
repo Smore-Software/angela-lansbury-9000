@@ -9,11 +9,51 @@ SUCCESS_COLOR = 32768
 
 
 def message_has_image(message: nextcord.Message):
-    attachments_has_image = next(filter(lambda a: 'image' in a.content_type, message.attachments), False)
-    attachments_has_video = next(filter(lambda a: 'video' in a.content_type, message.attachments), False)
+    attachments_has_image = next(filter(lambda a: a.content_type and 'image' in a.content_type, message.attachments), False)
+    attachments_has_video = next(filter(lambda a: a.content_type and 'video' in a.content_type, message.attachments), False)
     embeds_has_image = next(filter(lambda e: e.type == 'image', message.embeds), False)
     embeds_has_video = next(filter(lambda e: e.type == 'video', message.embeds), False)
     return attachments_has_image or attachments_has_video or embeds_has_image or embeds_has_video
+
+
+def starboard_embed(message: nextcord.Message, emoji_display: str, count: int,
+                    source_channel) -> nextcord.Embed:
+    """Build the embed reposted to a starboard's target channel.
+
+    Attribution (author + avatar), the original content, an inlined image (only
+    when the message actually carries an image attachment — an embed can inline at
+    most one), links to any remaining attachments, a jump link back to the source,
+    and a live ``{emoji} {count} · #channel`` footer. ``timestamp`` mirrors the
+    original message so the repost sorts by when it was written. Handles
+    media-only messages (empty content) without issue.
+    """
+    embed = nextcord.Embed(
+        color=INFO_COLOR,
+        description=message.content,
+        timestamp=message.created_at,
+    )
+    embed.set_author(name=message.author.display_name,
+                     icon_url=message.author.display_avatar.url)
+
+    image_attachment = None
+    if message_has_image(message):
+        image_attachment = next(
+            (a for a in message.attachments if a.content_type and 'image' in a.content_type),
+            None,
+        )
+        if image_attachment is not None:
+            embed.set_image(url=image_attachment.url)
+
+    # Anything we did not inline (other images, video, files) is listed as a link.
+    extra_attachments = [a for a in message.attachments if a is not image_attachment]
+    if extra_attachments:
+        links = '\n'.join(f'[{a.filename}]({a.url})' for a in extra_attachments)
+        embed.add_field(name='Attachments', value=links, inline=False)
+
+    embed.add_field(name='Source', value=f'[Jump to message]({message.jump_url})',
+                    inline=False)
+    embed.set_footer(text=f'{emoji_display} {count} · #{source_channel}')
+    return embed
 
 
 def info(message: str):

@@ -11,7 +11,7 @@ from bot.cogs.server_admin.server_admin_commands import ServerAdminCommands
 from bot.cogs.threads.threads_commands import ThreadsCommands
 from bot.config import Config
 from bot.events import on_member_join_event, on_guild_join_event, on_raw_reaction_add_event, \
-    on_raw_reaction_remove_event
+    on_raw_reaction_remove_event, on_raw_message_delete_event
 from bot.events.on_message_event import register_event
 from bot.utils import logger, messages
 
@@ -71,6 +71,7 @@ def run():
     on_guild_join_event.register_event(bot)
     on_raw_reaction_add_event.register_event(bot)
     on_raw_reaction_remove_event.register_event(bot)
+    on_raw_message_delete_event.register_event(bot)
     register_event(bot)
     bot.run(config.BOT_TOKEN)
 
