@@ -47,6 +47,26 @@ Your Bot Name
 
 Except it should show the name of your bot and its ID.
 
+### Running tests
+
+The test suite uses [pytest](https://docs.pytest.org/) and
+[pytest-asyncio](https://pytest-asyncio.readthedocs.io/). Install the dev
+dependencies (once) and run the suite:
+
+```shell
+pipenv install --dev
+pipenv run pytest
+```
+
+Tests never touch the real `bumper-db.sqlite`. The DB URL is read from the
+`DATABASE_URL` environment variable (defaulting to the production sqlite file),
+and `tests/conftest.py` points it at a throwaway temp database before any model
+is imported. To run against a specific database yourself, override it:
+
+```shell
+DATABASE_URL="sqlite:///some-other.sqlite" pipenv run pytest
+```
+
 ---
 
 ## Important packages to know about
