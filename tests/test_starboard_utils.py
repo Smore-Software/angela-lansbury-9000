@@ -68,10 +68,11 @@ def test_starboard_embed_core_fields():
     embed = messages.starboard_embed(msg, '⭐', 6, 'general')
     assert embed.author.name == 'Bob'
     assert embed.author.icon_url == 'http://avatar'
-    assert embed.description == 'something memorable'
+    assert embed.description.startswith('something memorable')
     assert embed.footer.text == '⭐ 6 · #general'
-    # The jump url is reachable from a field.
-    assert any('http://jump' in (f.value or '') for f in embed.fields)
+    # The jump link lives in a subtext line at the bottom of the content
+    # (footers can't hold links).
+    assert embed.description.endswith('-# [Source ↗](http://jump)')
 
 
 def test_starboard_embed_sets_image_when_image_attachment_present():
@@ -107,6 +108,8 @@ def test_starboard_embed_handles_empty_content_media_only():
     # No crash on empty content; image still inlined and count rendered.
     assert embed.image.url == 'http://img.jpg'
     assert embed.footer.text == '⭐ 10 · #memes'
+    # Source subtext still present even with no original content.
+    assert embed.description == '-# [Source ↗](http://jump)'
 
 
 def test_starboard_embed_tolerates_attachment_with_no_content_type():

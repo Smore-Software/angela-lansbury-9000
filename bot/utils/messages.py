@@ -22,14 +22,19 @@ def starboard_embed(message: nextcord.Message, emoji_display: str, count: int,
 
     Attribution (author + avatar), the original content, an inlined image (only
     when the message actually carries an image attachment — an embed can inline at
-    most one), links to any remaining attachments, a jump link back to the source,
-    and a live ``{emoji} {count} · #channel`` footer. ``timestamp`` mirrors the
-    original message so the repost sorts by when it was written. Handles
-    media-only messages (empty content) without issue.
+    most one), links to any remaining attachments, and a live
+    ``{emoji} {count} · #channel`` footer. A compact ``-# [Source ↗](url)`` subtext
+    line at the bottom of the content links back to the original message (Discord
+    embed footers are plain text and cannot hold a hyperlink, so the link lives in
+    the markdown-rendered description). ``timestamp`` mirrors the original message
+    so the repost sorts by when it was written. Handles media-only messages (empty
+    content) without issue.
     """
+    source_link = f'-# [Source ↗]({message.jump_url})'
+    description = f'{message.content}\n\n{source_link}' if message.content else source_link
     embed = nextcord.Embed(
         color=INFO_COLOR,
-        description=message.content,
+        description=description,
         timestamp=message.created_at,
     )
     embed.set_author(name=message.author.display_name,
@@ -50,8 +55,6 @@ def starboard_embed(message: nextcord.Message, emoji_display: str, count: int,
         links = '\n'.join(f'[{a.filename}]({a.url})' for a in extra_attachments)
         embed.add_field(name='Attachments', value=links, inline=False)
 
-    embed.add_field(name='Source', value=f'[Jump to message]({message.jump_url})',
-                    inline=False)
     embed.set_footer(text=f'{emoji_display} {count} · #{source_channel}')
     return embed
 

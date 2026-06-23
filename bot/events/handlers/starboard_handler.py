@@ -8,11 +8,11 @@ edits the live count thereafter; removals edit, they never delete. Deleting the
 original removes every starboard post it fed.
 
 Discord/REST calls (send/edit/fetch/delete) are wrapped in
-``try/except (Forbidden, NotFound)`` → Sentry, matching the auto-delete cog: a
-missing post or a permissions gap must not crash the event.
+``try/except (Forbidden, NotFound)`` and swallowed: a missing post or a
+permissions gap is an expected consequence of admins editing/deleting boards or
+posts, not a bug worth alerting on, and it must not crash the event.
 """
 import nextcord
-import sentry_sdk
 
 from bot.cogs.starboard.starboard_utils import reaction_count
 from bot.utils import bot_utils, messages
@@ -98,9 +98,8 @@ async def post_or_edit(bot, config, message, count, source_channel):
             return  # not yet eligible
         try:
             posted = await target.send(embed=embed)
-        except (nextcord.Forbidden, nextcord.NotFound) as e:
-            sentry_sdk.capture_exception(e)
-            return
+        except (nextcord.Forbidden, nextcord.NotFound):
+            return  # target channel gone or unpostable — admin config issue
         starboard_helper.upsert_entry(
             config_id=config.id, guild_id=config.guild_id,
             original_message_id=message.id,
@@ -113,9 +112,8 @@ async def post_or_edit(bot, config, message, count, source_channel):
     try:
         posted = await target.fetch_message(entry.posted_message_id)
         await posted.edit(embed=embed)
-    except (nextcord.Forbidden, nextcord.NotFound) as e:
-        sentry_sdk.capture_exception(e)
-        return
+    except (nextcord.Forbidden, nextcord.NotFound):
+        return  # post deleted/unreachable — admin action, nothing to refresh
     starboard_helper.upsert_entry(
         config_id=config.id, guild_id=config.guild_id,
         original_message_id=message.id,
@@ -142,7 +140,6 @@ async def handle_message_delete(bot, payload):
         try:
             posted = await target.fetch_message(entry.posted_message_id)
             await posted.delete()
-        except (nextcord.NotFound, nextcord.Forbidden) as e:
+        except (nextcord.NotFound, nextcord.Forbidden):
             # Post already gone or unreachable — the entry is cleared regardless.
-            sentry_sdk.capture_exception(e)
             continue
