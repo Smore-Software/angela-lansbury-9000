@@ -98,6 +98,21 @@ def test_emoji_display_custom():
     assert sc.emoji_display(config) == '<:book:123>'
 
 
+# --- emoji_label (plain-text autocomplete rendering) ------------------------
+
+
+def test_emoji_label_unicode_is_the_char():
+    config = SimpleNamespace(emoji='⭐', emoji_id=None)
+    assert sc.emoji_label(config) == '⭐'
+
+
+def test_emoji_label_custom_uses_name_not_mention():
+    # A `<:name:id>` mention renders as raw text in an autocomplete label, so the
+    # readable `:name:` form is used there instead.
+    config = SimpleNamespace(emoji='book', emoji_id=123)
+    assert sc.emoji_label(config) == ':book:'
+
+
 # --- board_summary / board_label --------------------------------------------
 
 
@@ -126,6 +141,20 @@ def test_board_label_includes_channel_emoji_threshold():
 def test_board_label_uses_channel_mention_when_name_unknown():
     label = sc.board_label(_config(target_channel_id=42, emoji='⭐', threshold=3))
     assert label == '<#42> | ⭐ | ≥ 3'
+
+
+def test_board_label_renders_custom_emoji_as_name():
+    # Autocomplete is plain text — a custom emoji shows as `:name:`, not `<:name:id>`.
+    label = sc.board_label(_config(emoji='blob', emoji_id=999, threshold=2),
+                           channel_name='general')
+    assert label == '#general | :blob: | ≥ 2'
+
+
+def test_board_summary_markdown_keeps_custom_emoji_mention():
+    # In markdown contexts (list embeds, confirmations) the mention renders as the
+    # actual emoji, so it is preserved.
+    summary = sc.board_summary(_config(emoji='blob', emoji_id=999, threshold=2), '<#10>')
+    assert summary == '<#10> | <:blob:999> | **≥ 2**'
 
 
 def test_board_label_truncated_to_limit():

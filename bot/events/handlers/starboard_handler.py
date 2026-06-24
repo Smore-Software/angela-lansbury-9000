@@ -20,8 +20,9 @@ from db.helpers import starboard_helper
 
 
 def _emoji_display(config) -> str:
-    """Render a config's emoji for the footer: ``<:name:id>`` for custom, the
-    unicode char otherwise."""
+    """Render a config's emoji for the repost's content line: ``<:name:id>`` for
+    custom, the unicode char otherwise. Lives in the message content (not the embed
+    footer) so a custom emoji renders as the emoji rather than raw ``<:name:id>``."""
     if config.emoji_id is not None:
         return f'<:{config.emoji}:{config.emoji_id}>'
     return config.emoji
@@ -90,14 +91,15 @@ async def post_or_edit(bot, config, message, count, source_channel):
     target = await bot_utils.get_or_fetch_channel(bot, config.target_channel_id)
     if target is None:
         return
-    embed = messages.starboard_embed(message, _emoji_display(config), count, source_channel)
+    content = messages.starboard_content(_emoji_display(config), count, message.jump_url)
+    embed = messages.starboard_embed(message, source_channel)
     entry = starboard_helper.get_entry(config.id, message.id)
 
     if entry is None:
         if count < config.threshold:
             return  # not yet eligible
         try:
-            posted = await target.send(embed=embed)
+            posted = await target.send(content=content, embed=embed)
         except (nextcord.Forbidden, nextcord.NotFound):
             return  # target channel gone or unpostable — admin config issue
         starboard_helper.upsert_entry(
@@ -111,7 +113,7 @@ async def post_or_edit(bot, config, message, count, source_channel):
     # Already posted: refresh the existing repost's count in place.
     try:
         posted = await target.fetch_message(entry.posted_message_id)
-        await posted.edit(embed=embed)
+        await posted.edit(content=content, embed=embed)
     except (nextcord.Forbidden, nextcord.NotFound):
         return  # post deleted/unreachable — admin action, nothing to refresh
     starboard_helper.upsert_entry(

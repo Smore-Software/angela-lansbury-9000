@@ -114,9 +114,10 @@ async def test_crossing_threshold_sends_once_and_records_entry():
     await starboard_handler.handle_reaction_add(bot, payload)
 
     assert target.send.call_count == 1
-    # The embed wired into the send carries the live count for this board.
-    sent_embed = target.send.call_args.kwargs['embed']
-    assert '⭐ 5 ·' in sent_embed.footer.text
+    # The emoji, live count, and source link ride in the message content (where a
+    # custom emoji and a link both render); the footer carries just the channel.
+    assert target.send.call_args.kwargs['content'] == '⭐ **× 5** · [Source ↗](http://jump)'
+    assert target.send.call_args.kwargs['embed'].footer.text == '#general'
     entry = starboard_helper.get_entry(config.id, MESSAGE_ID)
     assert entry is not None
     assert entry.posted_message_id == POSTED_ID
@@ -144,8 +145,8 @@ async def test_already_posted_edits_and_does_not_resend():
 
     assert target.send.call_count == 0           # no duplicate post
     assert posted.edit.call_count == 1           # count refreshed in place
-    edited_embed = posted.edit.call_args.kwargs['embed']
-    assert '⭐ 6 ·' in edited_embed.footer.text   # refreshed count wired into the edit
+    # Refreshed count rides in the message content, not the footer.
+    assert posted.edit.call_args.kwargs['content'] == '⭐ **× 6** · [Source ↗](http://jump)'
     assert starboard_helper.get_entry(config.id, MESSAGE_ID).star_count == 6
 
 

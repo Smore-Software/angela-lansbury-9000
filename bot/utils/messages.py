@@ -16,25 +16,31 @@ def message_has_image(message: nextcord.Message):
     return attachments_has_image or attachments_has_video or embeds_has_image or embeds_has_video
 
 
-def starboard_embed(message: nextcord.Message, emoji_display: str, count: int,
-                    source_channel) -> nextcord.Embed:
+def starboard_content(emoji_display: str, count: int, jump_url: str) -> str:
+    """The ``{emoji} **× {count}** · [Source ↗](url)`` line that leads the starboard
+    repost *message* (not the embed). Everything that needs to render as a real
+    link or a real emoji lives here: a custom-emoji mention and a markdown
+    hyperlink both render in message content but not in an embed footer (mention →
+    raw ``<:name:id>`` text) or footer (no links at all)."""
+    return f'{emoji_display} **× {count}** · [Source ↗]({jump_url})'
+
+
+def starboard_embed(message: nextcord.Message, source_channel) -> nextcord.Embed:
     """Build the embed reposted to a starboard's target channel.
 
     Attribution (author + avatar), the original content, an inlined image (only
     when the message actually carries an image attachment — an embed can inline at
-    most one), links to any remaining attachments, and a live
-    ``{emoji} {count} · #channel`` footer. A compact ``-# [Source ↗](url)`` subtext
-    line at the bottom of the content links back to the original message (Discord
-    embed footers are plain text and cannot hold a hyperlink, so the link lives in
-    the markdown-rendered description). ``timestamp`` mirrors the original message
-    so the repost sorts by when it was written. Handles media-only messages (empty
+    most one), links to any remaining attachments, and a ``#channel`` source
+    footer. The live ``{emoji} (count)`` tally and the back-link to the original
+    both live in the message *content* (see ``starboard_content``), not the embed,
+    because an embed footer renders a custom-emoji mention as raw ``<:name:id>``
+    text and cannot hold a hyperlink. ``timestamp`` mirrors the original message so
+    the repost sorts by when it was written. Handles media-only messages (empty
     content) without issue.
     """
-    source_link = f'-# [Source ↗]({message.jump_url})'
-    description = f'{message.content}\n\n{source_link}' if message.content else source_link
     embed = nextcord.Embed(
         color=INFO_COLOR,
-        description=description,
+        description=message.content or None,
         timestamp=message.created_at,
     )
     embed.set_author(name=message.author.display_name,
@@ -55,7 +61,7 @@ def starboard_embed(message: nextcord.Message, emoji_display: str, count: int,
         links = '\n'.join(f'[{a.filename}]({a.url})' for a in extra_attachments)
         embed.add_field(name='Attachments', value=links, inline=False)
 
-    embed.set_footer(text=f'{emoji_display} {count} · #{source_channel}')
+    embed.set_footer(text=f'#{source_channel}')
     return embed
 
 

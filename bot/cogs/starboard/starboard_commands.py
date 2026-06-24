@@ -27,9 +27,21 @@ _LIST_BOARDS_PER_PAGE = 10
 
 def emoji_display(config) -> str:
     """Render a config's stored emoji back to a displayable form: ``<:name:id>``
-    for a custom emoji, the raw unicode char otherwise."""
+    for a custom emoji, the raw unicode char otherwise. Renders as the actual emoji
+    only in markdown contexts (embed descriptions, message content) — never in the
+    plain-text of an autocomplete label, where ``emoji_label`` is used instead."""
     if config.emoji_id is not None:
         return f'<:{config.emoji}:{config.emoji_id}>'
+    return config.emoji
+
+
+def emoji_label(config) -> str:
+    """Plain-text rendering of a config's emoji for non-markdown contexts
+    (autocomplete labels). A custom-emoji mention renders as raw ``<:name:id>``
+    there, so we fall back to the readable ``:name:`` form; unicode emoji render
+    fine as-is."""
+    if config.emoji_id is not None:
+        return f':{config.emoji}:'
     return config.emoji
 
 
@@ -38,9 +50,13 @@ def board_summary(config, channel_ref: str, *, markdown: bool = True) -> str:
     (list, autocomplete, confirmations): ``channel | emoji | ≥ N`` with the
     threshold bolded in markdown contexts. The board id is omitted — it is
     meaningless to users. ``channel_ref`` is the already-rendered channel: a
-    ``<#id>`` mention in embeds/messages, a plain ``#name`` in autocomplete labels."""
+    ``<#id>`` mention in embeds/messages, a plain ``#name`` in autocomplete labels.
+    The ``markdown`` flag also picks the emoji rendering: a custom-emoji mention
+    only shows as the emoji in markdown contexts, so plain-text labels use the
+    ``:name:`` form instead."""
     threshold = f'**≥ {config.threshold}**' if markdown else f'≥ {config.threshold}'
-    return f'{channel_ref} | {emoji_display(config)} | {threshold}'
+    emoji = emoji_display(config) if markdown else emoji_label(config)
+    return f'{channel_ref} | {emoji} | {threshold}'
 
 
 def board_label(config, channel_name: str | None = None) -> str:

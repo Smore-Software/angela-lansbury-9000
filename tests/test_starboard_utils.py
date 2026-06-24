@@ -65,26 +65,35 @@ def test_reaction_count_matches_custom_emoji_by_id(emoji_factory):
 
 def test_starboard_embed_core_fields():
     msg = _message(content='something memorable')
-    embed = messages.starboard_embed(msg, '⭐', 6, 'general')
+    embed = messages.starboard_embed(msg, 'general')
     assert embed.author.name == 'Bob'
     assert embed.author.icon_url == 'http://avatar'
-    assert embed.description.startswith('something memorable')
-    assert embed.footer.text == '⭐ 6 · #general'
-    # The jump link lives in a subtext line at the bottom of the content
-    # (footers can't hold links).
-    assert embed.description.endswith('-# [Source ↗](http://jump)')
+    # The description is now just the original content — emoji, count, and the
+    # source back-link all moved to the message content.
+    assert embed.description == 'something memorable'
+    # The footer is just the source channel.
+    assert embed.footer.text == '#general'
+
+
+def test_starboard_content_renders_emoji_count_and_source():
+    # Everything that must render as a real emoji or link lives in the message
+    # content: `EMOJI **(COUNT)** | [Source ↗](url)`.
+    assert messages.starboard_content('⭐', 6, 'http://jump') == \
+        '⭐ **× 6** · [Source ↗](http://jump)'
+    assert messages.starboard_content('<:blob:12345>', 5, 'http://j') == \
+        '<:blob:12345> **× 5** · [Source ↗](http://j)'
 
 
 def test_starboard_embed_sets_image_when_image_attachment_present():
     img = _attachment('image/png', 'http://img.png')
     msg = _message(attachments=[img])
-    embed = messages.starboard_embed(msg, '⭐', 6, 'general')
+    embed = messages.starboard_embed(msg, 'general')
     assert embed.image.url == 'http://img.png'
 
 
 def test_starboard_embed_no_image_when_no_image_attachment():
     msg = _message(attachments=[])
-    embed = messages.starboard_embed(msg, '⭐', 6, 'general')
+    embed = messages.starboard_embed(msg, 'general')
     assert embed.image.url is None
 
 
@@ -92,7 +101,7 @@ def test_starboard_embed_lists_non_image_attachments_as_links():
     img = _attachment('image/png', 'http://img.png', filename='pic.png')
     doc = _attachment('application/pdf', 'http://doc.pdf', filename='spec.pdf')
     msg = _message(attachments=[img, doc])
-    embed = messages.starboard_embed(msg, '⭐', 6, 'general')
+    embed = messages.starboard_embed(msg, 'general')
     # Image inlined; the pdf surfaces as a link, not the inlined image.
     assert embed.image.url == 'http://img.png'
     attachment_fields = [f.value for f in embed.fields if f.name == 'Attachments']
@@ -104,12 +113,13 @@ def test_starboard_embed_lists_non_image_attachments_as_links():
 def test_starboard_embed_handles_empty_content_media_only():
     img = _attachment('image/jpeg', 'http://img.jpg')
     msg = _message(content='', attachments=[img])
-    embed = messages.starboard_embed(msg, '⭐', 10, 'memes')
-    # No crash on empty content; image still inlined and count rendered.
+    embed = messages.starboard_embed(msg, 'memes')
+    # No crash on empty content; image still inlined.
     assert embed.image.url == 'http://img.jpg'
-    assert embed.footer.text == '⭐ 10 · #memes'
-    # Source subtext still present even with no original content.
-    assert embed.description == '-# [Source ↗](http://jump)'
+    assert embed.footer.text == '#memes'
+    # Empty content yields no description (the source link lives in the message
+    # content now, not the embed).
+    assert embed.description is None
 
 
 def test_starboard_embed_tolerates_attachment_with_no_content_type():
@@ -117,14 +127,8 @@ def test_starboard_embed_tolerates_attachment_with_no_content_type():
     # raise on them, and such an attachment is treated as non-image (linked, not inlined).
     untyped = _attachment(None, 'http://file.bin', filename='blob.bin')
     msg = _message(content='see attached', attachments=[untyped])
-    embed = messages.starboard_embed(msg, '⭐', 6, 'general')
+    embed = messages.starboard_embed(msg, 'general')
     assert embed.image.url is None
     attachment_fields = [f.value for f in embed.fields if f.name == 'Attachments']
     assert len(attachment_fields) == 1
     assert 'http://file.bin' in attachment_fields[0]
-
-
-def test_starboard_embed_custom_emoji_display_in_footer():
-    msg = _message()
-    embed = messages.starboard_embed(msg, '<:blob:12345>', 5, 'general')
-    assert embed.footer.text == '<:blob:12345> 5 · #general'
