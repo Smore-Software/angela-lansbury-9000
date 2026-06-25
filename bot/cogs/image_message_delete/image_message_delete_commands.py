@@ -64,7 +64,7 @@ class ImageMessageDeleteCommands(commands.Cog):
                     await handle_thread_message(channel, message)
                 else:
                     await message.delete()
-                DB.s.delete(db_message_to_delete)
+                db_message_to_delete.has_failed = False
             except nextcord.NotFound:
                 sentry_sdk.capture_message(f'Failed to find message {db_message_to_delete}')
                 db_message_to_delete.has_failed = True
