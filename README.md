@@ -65,6 +65,57 @@ No application code changes are needed to switch databases — only this env var
 The driver is [psycopg 3](https://www.psycopg.org/) (`postgresql+psycopg://`),
 which is synchronous.
 
+#### Production cutover to Supabase (one-time)
+
+Moving live data off the old SQLite file onto Supabase. The migration mechanics
+and validation were rehearsed end-to-end against a local Postgres 15 using the
+real prod data (all checks passed); this is the owner-run production cutover.
+
+1. **Stop the bot** so no writes land mid-migration. The live
+   `bumper-db.sqlite` is now the frozen **rollback artifact** — don't modify or
+   delete it (keep it until the bot has run cleanly on Supabase for a few days).
+2. **Build the schema on the empty Supabase DB:**
+   ```shell
+   export DATABASE_URL='postgresql+psycopg://USER:PASS@HOST:PORT/postgres'
+   pipenv run python cli.py db upgrade      # alembic upgrade head
+   pipenv run python cli.py db current      # prints the baseline revision (head)
+   ```
+   If Supabase isn't empty from a prior attempt, reset first in the Studio SQL
+   editor: `DROP SCHEMA public CASCADE; CREATE SCHEMA public;` then re-run `db upgrade`.
+3. **Copy the data** (real run, not `--dry-run`):
+   ```shell
+   pipenv run python scripts/migrate_sqlite_to_postgres.py --sqlite ./bumper-db.sqlite
+   ```
+   It copies tables in FK-safe order, expands the old `excluded_channels` CSV
+   into `activity_excluded_channel` rows, lets Postgres assign the `birthdays`
+   surrogate `id`, advances identity sequences past the copied ids, and prints a
+   per-table row-count table. **Save that output.**
+4. **Verify row counts** against the SQLite source — every table must match
+   except the two intentional transforms: `activity_excluded_channel` equals the
+   **sum of CSV ids** across all `activity_module_settings` rows, and `birthdays`
+   keeps its count but gets fresh `id`s.
+5. **Cut over:** set the production `DATABASE_URL` to the Supabase pooled string
+   and restart the bot. This is the only change — no code edits.
+6. **Smoke-test live:**
+   - *Starboard race path:* react a message over the threshold; duplicate /
+     concurrent reactions must **not** error. Postgres raises a duplicate
+     `(starboard_config_id, original_message_id)` as the same
+     `sa.exc.IntegrityError` caught in `db/helpers/starboard_helper.py:160`
+     (rollback → update the existing row).
+   - *Birthdays:* add one; the same `(user, name)` is rejected, a different name
+     for the same user coexists.
+   - *Activity exclusions:* exclude a channel and confirm it sticks.
+7. **Supabase Studio (the user-facing goal):** open **Table Editor**, confirm
+   all 17 data tables are visible, and edit a value (e.g. a `guild_config`
+   field) to confirm rows are editable.
+8. **Rollback** (if needed): stop the bot, point `DATABASE_URL` back at
+   `sqlite:///bumper-db.sqlite` (or unset it — that's the fallback default), and
+   restart. No data is lost; the SQLite file was never modified.
+
+> Supabase free tier pauses a DB after ~7 days of inactivity. The always-on bot
+> keeps it warm; if a long quiet period ever pauses it, a periodic keepalive
+> `SELECT 1` is the fallback.
+
 ### Running the bot
 
 You can run the bot from your terminal using
