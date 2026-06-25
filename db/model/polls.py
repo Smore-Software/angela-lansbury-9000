@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import BigInteger, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db import DB
@@ -11,10 +11,10 @@ class PollQuestion(DB.Model):
     __tablename__ = 'poll_question'
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    message_id: Mapped[int] = mapped_column(index=True, nullable=True)
-    guild_id: Mapped[int] = mapped_column(index=True)
-    channel_id: Mapped[int] = mapped_column(index=True)
-    author_id: Mapped[int] = mapped_column(index=True)
+    message_id: Mapped[int] = mapped_column(BigInteger, index=True, nullable=True)
+    guild_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    channel_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    author_id: Mapped[int] = mapped_column(BigInteger, index=True)
     text: Mapped[str] = mapped_column()
     is_anonymous: Mapped[bool] = mapped_column(default=False)
     is_multi_choice: Mapped[bool] = mapped_column(default=False)
@@ -60,6 +60,6 @@ class PollResponse(DB.Model):
     __tablename__ = 'poll_response'
 
     choice_id: Mapped[int] = mapped_column(ForeignKey('poll_choice.id'), primary_key=True)
-    respondent_id: Mapped[int] = mapped_column(primary_key=True)
+    respondent_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
     choice: Mapped['PollChoice'] = relationship('PollChoice', back_populates='responses')

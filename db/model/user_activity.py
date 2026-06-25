@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from sqlalchemy import BigInteger
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db import DB
@@ -11,8 +12,8 @@ import datetime as dt
 class UserActivity(DB.Model):
     __tablename__ = 'user_activity'
 
-    guild_id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(primary_key=True)
+    guild_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     tracking_started_on: Mapped[datetime] = mapped_column()
     is_active: Mapped[bool] = mapped_column(default=True)
     sent_thirty_day_notice: Mapped[bool] = mapped_column(default=False)
