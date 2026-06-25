@@ -194,7 +194,7 @@ async def show_settings(interaction: nextcord.Interaction, bot: commands.Bot):
     break_role = None
     if settings.model.inactive_role_id:
         inactive_role = interaction.guild.get_role(settings.model.inactive_role_id)
-    if settings.model.excluded_channels:
+    if settings.excluded_channels:
         excluded_channels = [_get_channel_if_exists(bot, c_id) for c_id in settings.excluded_channels]
     if settings.model.break_role_id:
         break_role = interaction.guild.get_role(settings.model.break_role_id)
