@@ -18,17 +18,52 @@ Once you've cloned the repo, run
 pipenv install
 ```
 
-Once that completes, initialize the DB by running this at the root of the repo:
+Next, create a `.env` file at the root of the repo. The easiest way is to copy
+the provided template:
+```shell
+cp .env.example .env
+```
+At minimum, set `BOT_TOKEN` to your own test bot token. If you don't know how
+to make one, follow Step 1 on [this page](https://discord.com/developers/docs/getting-started#step-1-creating-an-app).
+`DATABASE_URL` controls which database the bot uses — see the
+[Database](#database) section below.
+
+Finally, initialize the DB by running this at the root of the repo:
 ```shell
 pipenv run python cli.py db create_all
 ```
 
-Finally, create a `.env` file at the root of the repo with the following contents:
+### Database
+
+The bot reads its connection string from the `DATABASE_URL` environment variable
+(a SQLAlchemy URL). If it's unset, the bot falls back to a local SQLite file
+(`sqlite:///bumper-db.sqlite`), which is fine for quick local hacking.
+
+For prod parity, develop against a real Postgres. A `docker-compose.yml` is
+provided that runs **Postgres 15** (the same major version Supabase runs) with a
+named volume for persistence:
+
+```shell
+docker compose up -d           # start Postgres in the background
 ```
-BOT_TOKEN="<YOUR_BOT_TOKEN>"
+
+Then point the bot at it (this is the dev default in `.env.example`):
 ```
-Replace `<YOUR_BOT_TOKEN>` with your own test bot token. If you don't know how
-to make one, follow Step 1 on [this page](https://discord.com/developers/docs/getting-started#step-1-creating-an-app).
+DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/bumper"
+```
+
+Run `pipenv run python cli.py db create_all` once to build the schema, then start
+the bot as usual. Stop the database with `docker compose down` (data persists) or
+`docker compose down -v` (wipe the volume).
+
+**Production (Supabase):** set `DATABASE_URL` to your project's **pooled**
+(PgBouncer / transaction-mode) connection string:
+```
+DATABASE_URL="postgresql+psycopg://USER:PASS@HOST:PORT/postgres"
+```
+No application code changes are needed to switch databases — only this env var.
+The driver is [psycopg 3](https://www.psycopg.org/) (`postgresql+psycopg://`),
+which is synchronous.
 
 ### Running the bot
 
@@ -65,6 +100,14 @@ is imported. To run against a specific database yourself, override it:
 
 ```shell
 DATABASE_URL="sqlite:///some-other.sqlite" pipenv run pytest
+```
+
+The suite always runs on SQLite. There's also an optional Postgres connectivity
+smoke check that's skipped unless you point it at a live Postgres via
+`TEST_PG_URL` (e.g. the local Docker instance above):
+
+```shell
+TEST_PG_URL="postgresql+psycopg://postgres:postgres@localhost:5432/bumper" pipenv run pytest
 ```
 
 ---
