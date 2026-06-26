@@ -101,6 +101,25 @@ def test_update_missing_returns_none():
     assert anniversary_helper.update(999999, title='x') is None
 
 
+def test_update_collision_returns_none_and_rolls_back():
+    # Two of the same user's entries; editing one onto the other's
+    # (title, month, day) trips the unique guard.
+    keep = _add(title='Wedding', month=6, day=25)
+    victim = _add(title='Engagement', month=3, day=2)
+    assert keep is not None and victim is not None
+
+    collided = anniversary_helper.update(victim.id, title='Wedding', month=6, day=25)
+    assert collided is None
+    # The rollback left the victim untouched and the session still usable.
+    refetched = anniversary_helper.get(victim.id)
+    assert refetched.title == 'Engagement'
+    assert refetched.month == 3 and refetched.day == 2
+    # Session is not stuck in a failed transaction: a subsequent add succeeds.
+    survivor = _add(title='Birthday', month=1, day=1)
+    assert survivor is not None
+    assert len(anniversary_helper.list_for_user(GUILD, USER)) == 3
+
+
 def test_delete_removes_row_and_missing_returns_false():
     entry = _add()
     assert anniversary_helper.delete(entry.id) is True

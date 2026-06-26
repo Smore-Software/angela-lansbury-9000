@@ -56,13 +56,20 @@ def list_for_guild(guild_id: int) -> List[Anniversary]:
 
 
 def update(id: int, **fields) -> Optional[Anniversary]:
+    """Mutate an entry, or return ``None`` if it is missing or the edit collides
+    with the ``(guild, user, title, month, day)`` unique guard (caught + rolled
+    back, mirroring ``add``)."""
     entry = DB.s.first(Anniversary, id=id)
     if entry is None:
         return None
     for key, value in fields.items():
         setattr(entry, key, value)
-    DB.s.commit()
-    return entry
+    try:
+        DB.s.commit()
+        return entry
+    except sa.exc.IntegrityError:
+        DB.s.rollback()
+        return None
 
 
 def delete(id: int) -> bool:
