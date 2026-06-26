@@ -3,7 +3,7 @@ import nextcord
 import sentry_sdk
 from nextcord.ext import commands
 
-from bot.cogs import AutoDeleteCommands, ImageMessageDeleteCommands, StarboardCommands
+from bot.cogs import AnniversaryCommands, AutoDeleteCommands, ImageMessageDeleteCommands, StarboardCommands
 from bot.cogs.admin.admin_commands import AdminCommands
 from bot.cogs.birthday.birthday_commands import BirthdayCommands
 from bot.cogs.polls.poll_commands import PollCommands
@@ -67,6 +67,7 @@ def run():
     bot.add_cog(ServerAdminCommands())
     bot.add_cog(PollCommands(bot))
     bot.add_cog(StarboardCommands(bot))
+    bot.add_cog(AnniversaryCommands(bot))
     logger.register_bot(bot)
     on_member_join_event.register_event(bot)
     on_guild_join_event.register_event(bot)
