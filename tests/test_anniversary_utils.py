@@ -247,3 +247,90 @@ def test_build_list_embeds_returns_fresh_embeds():
     assert len(embeds) == 2
     assert embeds[0] is not embeds[1]
     assert len({id(e) for e in embeds}) == len(embeds)
+
+
+# --- partition_postable -----------------------------------------------------
+
+
+def _loop_entry(user_id, channel_id):
+    """A duck-typed entry exposing just the two columns the partition reads."""
+    return SimpleNamespace(user_id=user_id, channel_id=channel_id)
+
+
+def test_partition_postable_registered_and_present_is_postable():
+    entry = _loop_entry(user_id=1, channel_id=10)
+    postable, skipped = au.partition_postable(
+        [entry], registered_ids={10}, is_member=lambda uid: True)
+    assert postable == [entry]
+    assert skipped == []
+
+
+def test_partition_postable_deregistered_channel_is_skipped():
+    # Decision 9: the channel is no longer registered -> skip, even for a member.
+    entry = _loop_entry(user_id=1, channel_id=99)
+    postable, skipped = au.partition_postable(
+        [entry], registered_ids={10}, is_member=lambda uid: True)
+    assert postable == []
+    assert skipped == [entry]
+
+
+def test_partition_postable_absent_member_is_skipped():
+    # Decision 10: the submitter has left -> skip, even on a registered channel.
+    entry = _loop_entry(user_id=1, channel_id=10)
+    postable, skipped = au.partition_postable(
+        [entry], registered_ids={10}, is_member=lambda uid: False)
+    assert postable == []
+    assert skipped == [entry]
+
+
+def test_partition_postable_is_member_keyed_by_user_id():
+    present = _loop_entry(user_id=1, channel_id=10)
+    departed = _loop_entry(user_id=2, channel_id=10)
+    here = {1}
+    postable, skipped = au.partition_postable(
+        [present, departed], registered_ids={10}, is_member=lambda uid: uid in here)
+    assert postable == [present]
+    assert skipped == [departed]
+
+
+def test_partition_postable_short_circuits_membership_for_deregistered():
+    # A deregistered channel must skip WITHOUT consulting `is_member` — the loop
+    # relies on this to avoid a REST member fetch for entries it won't post.
+    calls = []
+
+    def is_member(uid):
+        calls.append(uid)
+        return True
+
+    entry = _loop_entry(user_id=1, channel_id=99)
+    postable, skipped = au.partition_postable(
+        [entry], registered_ids={10}, is_member=is_member)
+    assert postable == []
+    assert calls == []
+
+
+def test_partition_postable_mixed_batch_preserves_order():
+    a = _loop_entry(user_id=1, channel_id=10)   # postable
+    b = _loop_entry(user_id=2, channel_id=99)   # deregistered -> skip
+    c = _loop_entry(user_id=3, channel_id=10)   # absent member -> skip
+    d = _loop_entry(user_id=4, channel_id=10)   # postable
+    here = {1, 4}
+    postable, skipped = au.partition_postable(
+        [a, b, c, d], registered_ids={10}, is_member=lambda uid: uid in here)
+    assert postable == [a, d]
+    assert skipped == [b, c]
+
+
+# --- post_embed (daily-post integration shape) ------------------------------
+
+
+def test_post_embed_today_entry_with_year_shows_count_footer():
+    # A today entry WITH a year: footer reads "{ordinal} {label} · {Month Day}".
+    embed = au.post_embed(_entry(month=6, day=25, year=2023, count_label='Year'), 2026)
+    assert embed.footer.text == '3rd Year · June 25'
+
+
+def test_post_embed_today_entry_without_year_shows_date_only():
+    # A today entry WITHOUT a year: footer is just the date, no count line.
+    embed = au.post_embed(_entry(month=6, day=25, year=None), 2026)
+    assert embed.footer.text == 'June 25'

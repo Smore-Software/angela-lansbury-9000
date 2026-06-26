@@ -138,6 +138,26 @@ def post_embed(entry, current_year: int) -> nextcord.Embed:
     return embed
 
 
+def partition_postable(entries, registered_ids, is_member):
+    """Split ``entries`` into ``(postable, skipped)`` by the daily loop's skip rules.
+
+    An entry is postable only when its ``channel_id`` is still in ``registered_ids``
+    (Decision 9: a deregistered channel silently skips until re-routed) and its
+    submitter is still present, per the ``is_member`` callable (``user_id -> bool``;
+    Decision 10: departed submitters are skipped). Everything else lands in
+    ``skipped``. Pure — the loop supplies ``registered_ids`` (a set) and an
+    ``is_member`` backed by ``guild.fetch_member``, so the network calls stay thin
+    and the rules stay unit-testable.
+    """
+    postable, skipped = [], []
+    for entry in entries:
+        if entry.channel_id in registered_ids and is_member(entry.user_id):
+            postable.append(entry)
+        else:
+            skipped.append(entry)
+    return postable, skipped
+
+
 def build_list_embeds(entries, *, guild, title) -> list[nextcord.Embed]:
     """Build one embed per page of ``entries`` as a Markdown list, chunked at
     ``_LIST_ENTRIES_PER_PAGE`` each. Each line is ``heading · MM/DD · <#channel> ·

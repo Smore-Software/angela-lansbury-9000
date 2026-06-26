@@ -12,16 +12,22 @@ helpers; no persistence lives here.
 The add/edit flows are split across views because of two Discord constraints: a
 modal must be the *direct* response to an interaction and cannot hold a select, so
 the channel is chosen in ``ChannelChoiceView`` first, whose component interaction
-then opens ``AnniversaryModal``. The daily posting loop is intentionally absent —
-it lands in Phase 4.
+then opens ``AnniversaryModal``. The daily posting loop (``post_anniversaries``)
+runs once at 12:00 UTC, posting one neutral embed per today's entry to its own
+channel and skipping entries whose channel was deregistered or whose submitter has
+left the guild.
 """
+import asyncio
+from datetime import datetime, time, timezone
+
 import nextcord
+import sentry_sdk
 from nextcord import slash_command, Permissions, Interaction, SlashOption, TextChannel
-from nextcord.ext import commands
+from nextcord.ext import commands, tasks
 
 from bot.cogs.anniversary import anniversary_utils
 from bot.cogs.anniversary.views.channel_choice_view import ChannelChoiceView
-from bot.utils import messages
+from bot.utils import messages, bot_utils
 from bot.utils.views import EmbedPaginatorView
 from db.helpers import anniversary_helper, anniversary_channel_helper
 
@@ -53,9 +59,66 @@ def channel_label(channel) -> str:
     return label
 
 
+async def _fetch_member_or_none(guild, user_id):
+    """Resolve ``user_id`` to a member via a REST ``fetch_member`` (the ``members``
+    intent is OFF per ``bot/app.py``, so the cache is empty and ``get_member`` can't
+    be trusted), returning ``None`` when the submitter has left the guild."""
+    try:
+        return await guild.fetch_member(user_id)
+    except nextcord.NotFound:
+        return None
+
+
 class AnniversaryCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.post_anniversaries.start()
+
+    # --- daily posting loop -------------------------------------------------
+
+    # Decision 4: one post a day at noon UTC. This MUST stay a `time=` schedule —
+    # never a `seconds=` interval (the birthday cog shipped a 15s test loop by
+    # accident; do not repeat it).
+    @tasks.loop(time=time(hour=12, minute=0, second=0, tzinfo=timezone.utc))
+    async def post_anniversaries(self):
+        if not self.bot.is_ready():
+            return
+        today = datetime.now(timezone.utc)
+        for guild_id, entries in anniversary_helper.get_todays(today).items():
+            try:
+                guild = self.bot.get_guild(guild_id)
+                if guild is None:
+                    continue
+                registered = {c.channel_id
+                              for c in anniversary_channel_helper.get_channels(guild_id)}
+                # Resolve membership once per submitter via REST, but only for
+                # entries whose channel is still registered (a deregistered channel
+                # skips before we'd ever need the membership check).
+                membership = {}
+                for entry in entries:
+                    if entry.channel_id in registered and entry.user_id not in membership:
+                        member = await _fetch_member_or_none(guild, entry.user_id)
+                        membership[entry.user_id] = member is not None
+                postable, _skipped = anniversary_utils.partition_postable(
+                    entries, registered, lambda user_id: membership.get(user_id, False))
+                for entry in postable:
+                    channel = await bot_utils.get_or_fetch_channel(guild, entry.channel_id)
+                    if channel is None:
+                        continue
+                    embed = anniversary_utils.post_embed(entry, today.year)
+                    await channel.send(
+                        content=f'<@{entry.user_id}>', embed=embed,
+                        allowed_mentions=nextcord.AllowedMentions(users=True))
+            except nextcord.Forbidden as e:
+                sentry_sdk.capture_exception(e)
+            except Exception as e:
+                sentry_sdk.capture_exception(e)
+
+    @post_anniversaries.error
+    async def post_anniversaries_error(self, e):
+        sentry_sdk.capture_exception(e)
+        await asyncio.sleep(60)
+        self.post_anniversaries.restart()
 
     # --- /anniversary (open to everyone) ------------------------------------
 
