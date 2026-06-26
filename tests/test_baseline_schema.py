@@ -21,6 +21,8 @@ EXPECTED_TABLES = {
     'activity_excluded_channel',
     'activity_module_settings',
     'activity_role',
+    'anniversary',
+    'anniversary_channel',
     'auto_delete_channel_config',
     'birthdays',
     'guild_config',

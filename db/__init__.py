@@ -20,5 +20,7 @@ from db.model.activity_role import *
 from db.model.polls import *
 from db.model.starboard_config import *
 from db.model.starboard_entry import *
+from db.model.anniversary import *
+from db.model.anniversary_channel import *
 
 alembic = Alembic(DB, 'db/migrations')
