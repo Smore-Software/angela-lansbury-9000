@@ -1,4 +1,5 @@
 import nextcord
+from sqlalchemy import BigInteger
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db import DB
@@ -7,8 +8,8 @@ from db import DB
 class ActivityRole(DB.Model):
     __tablename__ = 'activity_role'
 
-    guild_id: Mapped[int] = mapped_column(primary_key=True)
-    role_id: Mapped[int] = mapped_column(primary_key=True)
+    guild_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    role_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     role_name: Mapped[str] = mapped_column(nullable=True)
     min: Mapped[int] = mapped_column(nullable=True)
     max: Mapped[int] = mapped_column(nullable=True)

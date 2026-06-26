@@ -1,0 +1,30 @@
+# Local Postgres for development, pinned to Postgres 15 to match Supabase
+# (prod parity). The test suite stays on throwaway SQLite — this is only for
+# running the bot against a real Postgres locally.
+#
+#   docker compose up -d        # start Postgres in the background
+#   docker compose down         # stop it (data persists in the named volume)
+#   docker compose down -v      # stop and wipe the data volume
+#
+# Connect with:
+#   DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/bumper
+services:
+  postgres:
+    image: postgres:15
+    container_name: angela-lansbury-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: bumper
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bumper"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:

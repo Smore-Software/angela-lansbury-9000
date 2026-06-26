@@ -10,6 +10,7 @@ proper-cli = "*"
 sentry-sdk = "*"
 function-cooldowns = "*"
 nextcord-ext-menus = "*"
+psycopg = {extras = ["binary"], version = "*"}
 
 [dev-packages]
 pytest = "*"
