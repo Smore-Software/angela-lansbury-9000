@@ -176,6 +176,62 @@ def test_channel_display_name_truncates_to_discord_label_cap():
     assert label.endswith('…')
 
 
+# --- build_pending_entry ----------------------------------------------------
+
+
+def test_build_pending_entry_preserves_and_carries_values():
+    pending = au.build_pending_entry(
+        title='Our Wedding', count_label='Year', message='We remember you',
+        month=6, day=25, year=2020, channel_id=99)
+    assert pending.title == 'Our Wedding'
+    assert pending.count_label == 'Year'
+    assert pending.message == 'We remember you'
+    assert (pending.month, pending.day, pending.year) == (6, 25, 2020)
+    assert pending.channel_id == 99
+
+
+@pytest.mark.parametrize('blank', [None, '', '   '])
+def test_build_pending_entry_normalizes_blank_text_to_none(blank):
+    # Blank/whitespace free-text collapses to None, exactly as add/update store it,
+    # so the confirmed preview matches what gets persisted.
+    pending = au.build_pending_entry(
+        title=blank, count_label=blank, message=blank,
+        month=2, day=29, year=None, channel_id=7)
+    assert pending.title is None
+    assert pending.count_label is None
+    assert pending.message is None
+
+
+def test_build_pending_entry_strips_surrounding_whitespace():
+    pending = au.build_pending_entry(
+        title='  Wedding  ', count_label='  Year  ', message='  hi  ',
+        month=1, day=1, year=2000, channel_id=1)
+    assert (pending.title, pending.count_label, pending.message) == (
+        'Wedding', 'Year', 'hi')
+
+
+def test_build_pending_entry_renders_through_post_embed():
+    # The whole point of the pending entry: post_embed renders it identically to a
+    # persisted row, so the confirm preview is faithful. Year drives the count line.
+    pending = au.build_pending_entry(
+        title='Our Wedding', count_label='Year', message='We remember you',
+        month=6, day=25, year=2021, channel_id=42)
+    embed = au.post_embed(pending, 2026)
+    assert embed.title == 'Our Wedding'
+    assert embed.description == '*We remember you*'
+    assert embed.footer.text == '5th Year · June 25'
+
+
+def test_build_pending_entry_blank_title_renders_default_in_preview():
+    pending = au.build_pending_entry(
+        title='   ', count_label=None, message=None,
+        month=3, day=1, year=None, channel_id=5)
+    embed = au.post_embed(pending, 2026)
+    assert embed.title == 'Anniversary'
+    assert embed.description is None
+    assert embed.footer.text == 'March 1'
+
+
 # --- post_embed -------------------------------------------------------------
 
 

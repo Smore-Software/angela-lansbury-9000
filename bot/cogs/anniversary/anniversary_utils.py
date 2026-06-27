@@ -14,6 +14,7 @@ objects exist.
 """
 import calendar
 import re
+from types import SimpleNamespace
 
 import nextcord
 
@@ -134,6 +135,26 @@ def channel_display_name(guild, channel_id) -> str:
     if len(label) > _CHANNEL_LABEL_MAX:
         label = label[:_CHANNEL_LABEL_MAX - 1] + '…'
     return label
+
+
+def build_pending_entry(*, title, count_label, message, month, day, year,
+                        channel_id) -> SimpleNamespace:
+    """Assemble the validated-but-not-yet-persisted entry shown in the confirm
+    preview (``AnniversaryModal`` → ``AnniversaryPreviewView``).
+
+    Returns a lightweight ``SimpleNamespace`` duck-typing the ``Anniversary``
+    columns that ``post_embed`` reads, so the preview renders identically to the
+    eventual daily post without touching the DB. The free-text fields are
+    normalized exactly as the helpers store them — blank/whitespace collapses to
+    ``None`` — so what the user confirms is byte-for-byte what ``add``/``update``
+    will persist. ``month``/``day``/``year`` arrive already parsed by
+    ``parse_month_day`` / ``parse_year``.
+    """
+    return SimpleNamespace(
+        title=(title or '').strip() or None,
+        count_label=(count_label or '').strip() or None,
+        message=(message or '').strip() or None,
+        month=month, day=day, year=year, channel_id=channel_id)
 
 
 def post_embed(entry, current_year: int) -> nextcord.Embed:
