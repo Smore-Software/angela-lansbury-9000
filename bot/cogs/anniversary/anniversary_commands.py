@@ -124,7 +124,7 @@ class AnniversaryCommands(commands.Cog):
         if not channels:
             return await interaction.send(
                 embed=messages.error(
-                    'No anniversary channels are registered yet. Ask a server manager '
+                    'No anniversary channels are registered yet. Ask a **moderator** '
                     'to add one with `/anniversary-channels add`.'),
                 ephemeral=True)
         # The picker always shows; the sole channel is preselected. Progress to the
@@ -172,7 +172,7 @@ class AnniversaryCommands(commands.Cog):
         if not channels:
             return await interaction.send(
                 embed=messages.error(
-                    'No anniversary channels are registered yet. Ask a server manager '
+                    'No anniversary channels are registered yet. Ask a **moderator** '
                     'to add one with `/anniversary-channels add`.'),
                 ephemeral=True)
         # Reuse the add flow: same picker preselected to the current channel (so

@@ -38,9 +38,11 @@ class AnniversaryModal(nextcord.ui.Modal):
         # re-open, else the edit target on first open, else nothing (a fresh add).
         source = prefill if prefill is not None else entry
 
+        # Required + autofilled with "Anniversary": the field arrives pre-populated
+        # and valid, but a prefill (Edit re-open) wins over the literal default.
         self.title_input = nextcord.ui.TextInput(
-            label='Title', placeholder='Anniversary', required=False, max_length=200,
-            default_value=(source.title if source else None))
+            label='Title', required=True, max_length=200,
+            default_value=(source.title if source else None) or 'Anniversary')
         self.add_item(self.title_input)
 
         self.date_input = nextcord.ui.TextInput(
@@ -49,13 +51,15 @@ class AnniversaryModal(nextcord.ui.Modal):
         self.add_item(self.date_input)
 
         self.year_input = nextcord.ui.TextInput(
-            label='Year', placeholder='YYYY (for the count)', required=False, max_length=4,
+            label='Year', placeholder='YYYY (optional)', required=False, max_length=4,
             default_value=(str(source.year) if source and source.year else None))
         self.add_item(self.year_input)
 
+        # Required + autofilled like the title; the label drives "Nth <suffix>". The
+        # 34-char label sits within Discord's 45-char cap; max_length stays at 100.
         self.label_input = nextcord.ui.TextInput(
-            label='Count word', placeholder='Anniversary', required=False, max_length=100,
-            default_value=(source.count_label if source else None))
+            label='Count suffix (e.g. "Nth [Suffix]")', required=True, max_length=100,
+            default_value=(source.count_label if source else None) or 'Anniversary')
         self.add_item(self.label_input)
 
         self.message_input = nextcord.ui.TextInput(
