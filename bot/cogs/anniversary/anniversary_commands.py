@@ -127,9 +127,12 @@ class AnniversaryCommands(commands.Cog):
                     'No anniversary channels are registered yet. Ask a server manager '
                     'to add one with `/anniversary-channels add`.'),
                 ephemeral=True)
-        # Decision 5: the picker always shows; the sole channel is preselected.
+        # The picker always shows; the sole channel is preselected. Progress to the
+        # modal is driven by the view's Continue button (a sole preselected select
+        # option can't fire a change event — crit r_6662a2).
         preselected = channels[0].channel_id if len(channels) == 1 else None
         await interaction.send(
+            content='Select which channel to post to.',
             view=ChannelChoiceView(
                 channels, guild=interaction.guild, preselected_channel_id=preselected),
             ephemeral=True)
@@ -173,9 +176,11 @@ class AnniversaryCommands(commands.Cog):
                     'to add one with `/anniversary-channels add`.'),
                 ephemeral=True)
         # Reuse the add flow: same picker preselected to the current channel (so
-        # keeping it is one tap, re-routing is just a different pick), same modal
-        # prefilled from the entry.
+        # keeping it is one Continue tap, re-routing is just a different pick), same
+        # modal prefilled from the entry. The preselection seeds the view's selected
+        # channel so Continue works even if the select is never touched.
         await interaction.send(
+            content='Select which channel to post to.',
             view=ChannelChoiceView(
                 channels, guild=interaction.guild,
                 preselected_channel_id=resolved.channel_id, entry=resolved),
