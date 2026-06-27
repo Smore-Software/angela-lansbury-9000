@@ -11,10 +11,10 @@ from db import DB
 from db.model.anniversary_channel import AnniversaryChannel
 
 
-def add_channel(guild_id: int, channel_id: int, label: str) -> Optional[AnniversaryChannel]:
+def add_channel(guild_id: int, channel_id: int) -> Optional[AnniversaryChannel]:
     """Register a channel, or return ``None`` if ``(guild, channel)`` is already
     registered (unique guard caught + rolled back)."""
-    channel = AnniversaryChannel(guild_id=guild_id, channel_id=channel_id, label=label)
+    channel = AnniversaryChannel(guild_id=guild_id, channel_id=channel_id)
     try:
         DB.s.add(channel)
         DB.s.commit()

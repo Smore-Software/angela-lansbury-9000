@@ -49,16 +49,6 @@ def entry_label(entry) -> str:
     return label
 
 
-def channel_label(channel) -> str:
-    """Plain-text autocomplete label for a registered channel — its admin-set
-    registry label, truncated to Discord's limit (channel mentions don't render in
-    autocomplete labels, so the label carries the meaning)."""
-    label = channel.label
-    if len(label) > _AUTOCOMPLETE_LABEL_MAX:
-        label = label[:_AUTOCOMPLETE_LABEL_MAX - 1] + '…'
-    return label
-
-
 async def _fetch_member_or_none(guild, user_id):
     """Resolve ``user_id`` to a member via a REST ``fetch_member`` (the ``members``
     intent is OFF per ``bot/app.py``, so the cache is empty and ``get_member`` can't
@@ -140,7 +130,8 @@ class AnniversaryCommands(commands.Cog):
         # Decision 5: the picker always shows; the sole channel is preselected.
         preselected = channels[0].channel_id if len(channels) == 1 else None
         await interaction.send(
-            view=ChannelChoiceView(channels, preselected_channel_id=preselected),
+            view=ChannelChoiceView(
+                channels, guild=interaction.guild, preselected_channel_id=preselected),
             ephemeral=True)
 
     @anniversary.subcommand(name='list', description='List your own anniversaries.')
@@ -186,7 +177,8 @@ class AnniversaryCommands(commands.Cog):
         # prefilled from the entry.
         await interaction.send(
             view=ChannelChoiceView(
-                channels, preselected_channel_id=resolved.channel_id, entry=resolved),
+                channels, guild=interaction.guild,
+                preselected_channel_id=resolved.channel_id, entry=resolved),
             ephemeral=True)
 
     @anniversary.subcommand(name='remove', description='Remove one of your anniversaries.')
@@ -223,17 +215,14 @@ class AnniversaryCommands(commands.Cog):
         name='add', description='Register a channel for anniversary posts.')
     async def add_channel(self, interaction: Interaction,
                           channel: TextChannel = SlashOption(
-                              name='channel', description='The channel to register.'),
-                          label: str = SlashOption(
-                              name='label',
-                              description='A short name shown in the picker, e.g. "Remembrances".')):
+                              name='channel', description='The channel to register.')):
         registered = anniversary_channel_helper.add_channel(
-            interaction.guild_id, channel.id, label)
+            interaction.guild_id, channel.id)
         if registered is None:
             return await interaction.send(
                 embed=messages.error(f'{channel.mention} is already registered.'),
                 ephemeral=True)
-        confirmation = f'Registered {channel.mention} for anniversaries as "{label}".'
+        confirmation = f'Registered {channel.mention} for anniversaries.'
         await interaction.send(
             embed=messages.success(confirmation + self._perms_warning(interaction, channel)),
             ephemeral=True)
@@ -263,7 +252,7 @@ class AnniversaryCommands(commands.Cog):
             return await interaction.send(
                 embed=messages.info('No anniversary channels are registered yet.'),
                 ephemeral=True)
-        lines = [f'<#{c.channel_id}> | {c.label}' for c in channels]
+        lines = [f'<#{c.channel_id}>' for c in channels]
         embed = nextcord.Embed(color=messages.INFO_COLOR, title='Anniversary channels',
                                description='\n'.join(lines))
         await interaction.send(embed=embed, ephemeral=True)
@@ -343,7 +332,8 @@ class AnniversaryCommands(commands.Cog):
         query = (focused or '').strip().lower()
         choices = {}
         for channel in channels:
-            label = channel_label(channel)
+            label = anniversary_utils.channel_display_name(
+                interaction.guild, channel.channel_id)
             if query and query not in label.lower():
                 continue
             choices[label] = str(channel.channel_id)

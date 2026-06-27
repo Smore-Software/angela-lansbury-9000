@@ -9,18 +9,23 @@ and carries the ``entry`` through so the modal opens prefilled.
 """
 import nextcord
 
+from bot.cogs.anniversary import anniversary_utils
 from bot.cogs.anniversary.views.anniversary_modal import AnniversaryModal
 
 
 class ChannelChoiceView(nextcord.ui.View):
-    def __init__(self, channels, *, preselected_channel_id: int = None, entry=None,
-                 timeout: float = 180):
+    def __init__(self, channels, *, guild=None, preselected_channel_id: int = None,
+                 entry=None, timeout: float = 180):
         super().__init__(timeout=timeout)
         # Carried through to the modal so edit reopens prefilled against the entry.
         self.entry = entry
+        # Each registry row only stores a channel_id, so the option is labelled by
+        # the channel's own resolved name (``#name``, or a ``Channel <id>`` fallback
+        # for a deleted channel) — never an empty label, which nextcord rejects.
         options = [
             nextcord.SelectOption(
-                label=channel.label, value=str(channel.channel_id),
+                label=anniversary_utils.channel_display_name(guild, channel.channel_id),
+                value=str(channel.channel_id),
                 default=(channel.channel_id == preselected_channel_id))
             for channel in channels
         ]

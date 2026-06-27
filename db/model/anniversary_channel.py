@@ -11,4 +11,3 @@ class AnniversaryChannel(DB.Model):
     id: Mapped[int]         = mapped_column(primary_key=True)
     guild_id: Mapped[int]   = mapped_column(BigInteger, index=True)
     channel_id: Mapped[int] = mapped_column(BigInteger)
-    label: Mapped[str]      = mapped_column()  # shown in the picker, e.g. "Remembrances"

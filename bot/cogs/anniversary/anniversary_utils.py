@@ -28,6 +28,9 @@ _MAX_DAY = {1: 31, 2: 29, 3: 31, 4: 30, 5: 31, 6: 30,
 # Entries per page in the list/upcoming embeds (one Markdown line each). The
 # paginator adds ◀️/▶️ buttons only when there is more than one page.
 _LIST_ENTRIES_PER_PAGE = 10
+# Discord caps both SelectOption.label (the picker) and autocomplete choice labels
+# at 100 chars; resolved channel labels are truncated to fit either.
+_CHANNEL_LABEL_MAX = 100
 
 
 def parse_month_day(raw: str) -> tuple[int, int]:
@@ -113,6 +116,24 @@ def label_or_default(label) -> str:
     """The word after the ordinal (e.g. "3rd **Anniversary**"), falling back to
     "Anniversary" when blank/whitespace."""
     return (label or '').strip() or 'Anniversary'
+
+
+def channel_display_name(guild, channel_id) -> str:
+    """A plain-text label for a registered channel — ``#name`` when the channel is
+    resolvable in ``guild``, else a ``Channel <id>`` fallback (deleted/uncached).
+
+    Never returns an empty string: nextcord ``SelectOption`` and autocomplete
+    labels require a non-empty value. Used by the channel picker and the channel
+    autocomplete, neither of which can render a ``<#id>`` mention (mentions only
+    resolve inside message/embed content), so the resolved name carries the
+    meaning. The result is bounded to ``_CHANNEL_LABEL_MAX`` here so both callers
+    stay within Discord's 100-char label cap — a channel name can itself be 100
+    chars, making ``#name`` 101."""
+    channel = guild.get_channel(channel_id) if guild is not None else None
+    label = f'#{channel.name}' if channel is not None else f'Channel {channel_id}'
+    if len(label) > _CHANNEL_LABEL_MAX:
+        label = label[:_CHANNEL_LABEL_MAX - 1] + '…'
+    return label
 
 
 def post_embed(entry, current_year: int) -> nextcord.Embed:

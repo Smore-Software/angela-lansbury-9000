@@ -14,9 +14,23 @@ from bot.cogs.anniversary import anniversary_commands as ac
 from db.helpers import anniversary_helper, anniversary_channel_helper
 
 
-def _interaction(guild_id=1, user_id=100, manage_guild=False):
+def _guild(channels=None):
+    """A fake guild whose ``get_channel`` resolves ids to objects with a ``name``
+    (per the ``channels`` mapping), returning ``None`` for anything unmapped — the
+    same contract the channel-name resolver relies on."""
+    channels = channels or {}
+
+    def get_channel(channel_id):
+        name = channels.get(channel_id)
+        return SimpleNamespace(name=name) if name is not None else None
+
+    return SimpleNamespace(get_channel=get_channel)
+
+
+def _interaction(guild_id=1, user_id=100, manage_guild=False, channels=None):
     return SimpleNamespace(
         guild_id=guild_id,
+        guild=_guild(channels),
         user=SimpleNamespace(
             id=user_id,
             guild_permissions=SimpleNamespace(manage_guild=manage_guild)))
@@ -84,14 +98,14 @@ def test_resolve_entry_malformed_or_missing_returns_none():
 
 
 def test_resolve_channel_returns_row_for_own_guild():
-    anniversary_channel_helper.add_channel(1, 555, 'Remembrances')
+    anniversary_channel_helper.add_channel(1, 555)
     interaction = _interaction(guild_id=1)
     resolved = ac.AnniversaryCommands._resolve_channel(interaction, '555')
     assert resolved is not None and resolved.channel_id == 555
 
 
 def test_resolve_channel_rejects_other_guild_and_malformed():
-    anniversary_channel_helper.add_channel(1, 555, 'Remembrances')
+    anniversary_channel_helper.add_channel(1, 555)
     # Another guild can't resolve guild 1's registered channel.
     assert ac.AnniversaryCommands._resolve_channel(_interaction(guild_id=2), '555') is None
     assert ac.AnniversaryCommands._resolve_channel(_interaction(guild_id=1), 'nope') is None
@@ -151,32 +165,42 @@ def test_entry_choices_capped_at_25():
 # --- _channel_choices -------------------------------------------------------
 
 
-def test_channel_choices_shape_is_label_to_str_channel_id():
-    anniversary_channel_helper.add_channel(1, 777, 'Remembrances')
-    interaction = _interaction(guild_id=1)
+def test_channel_choices_shape_is_resolved_name_to_str_channel_id():
+    anniversary_channel_helper.add_channel(1, 777)
+    interaction = _interaction(guild_id=1, channels={777: 'remembrances'})
     choices = ac.AnniversaryCommands._channel_choices(interaction)
-    assert choices == {'Remembrances': '777'}
+    # Label is the channel's own resolved `#name`, value its stringified id.
+    assert choices == {'#remembrances': '777'}
+
+
+def test_channel_choices_unresolved_channel_falls_back_to_id_label():
+    anniversary_channel_helper.add_channel(1, 777)
+    # The channel was deleted on Discord (unmapped) -> safe non-empty fallback.
+    interaction = _interaction(guild_id=1, channels={})
+    choices = ac.AnniversaryCommands._channel_choices(interaction)
+    assert choices == {'Channel 777': '777'}
 
 
 def test_channel_choices_substring_filter_case_insensitive():
-    anniversary_channel_helper.add_channel(1, 777, 'Remembrances')
-    anniversary_channel_helper.add_channel(1, 888, 'Celebrations')
-    interaction = _interaction(guild_id=1)
+    anniversary_channel_helper.add_channel(1, 777)
+    anniversary_channel_helper.add_channel(1, 888)
+    interaction = _interaction(
+        guild_id=1, channels={777: 'remembrances', 888: 'celebrations'})
     choices = ac.AnniversaryCommands._channel_choices(interaction, 'celeb')
     assert list(choices.values()) == ['888']
 
 
 def test_channel_choices_excludes_other_guilds():
-    anniversary_channel_helper.add_channel(1, 777, 'Here')
-    anniversary_channel_helper.add_channel(2, 888, 'Elsewhere')
-    interaction = _interaction(guild_id=1)
+    anniversary_channel_helper.add_channel(1, 777)
+    anniversary_channel_helper.add_channel(2, 888)
+    interaction = _interaction(guild_id=1, channels={777: 'here'})
     choices = ac.AnniversaryCommands._channel_choices(interaction)
     assert list(choices.values()) == ['777']
 
 
 def test_channel_choices_capped_at_25():
     for i in range(30):
-        anniversary_channel_helper.add_channel(1, 1000 + i, f'Channel {i:02d}')
+        anniversary_channel_helper.add_channel(1, 1000 + i)
     interaction = _interaction(guild_id=1)
     assert len(ac.AnniversaryCommands._channel_choices(interaction)) == 25
 

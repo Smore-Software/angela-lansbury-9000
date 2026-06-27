@@ -143,6 +143,39 @@ def test_label_or_default_preserves_value():
     assert au.label_or_default('  Year  ') == 'Year'
 
 
+# --- channel_display_name ---------------------------------------------------
+
+
+def _guild(channels):
+    """A fake guild whose ``get_channel`` resolves ids per the ``channels`` map and
+    returns ``None`` for anything unmapped (a deleted/uncached channel)."""
+    def get_channel(channel_id):
+        name = channels.get(channel_id)
+        return SimpleNamespace(name=name) if name is not None else None
+    return SimpleNamespace(get_channel=get_channel)
+
+
+def test_channel_display_name_resolved():
+    assert au.channel_display_name(_guild({7: 'remembrances'}), 7) == '#remembrances'
+
+
+def test_channel_display_name_unresolved_falls_back_to_id():
+    # Channel deleted/uncached -> non-empty fallback (empty labels are rejected).
+    assert au.channel_display_name(_guild({}), 7) == 'Channel 7'
+
+
+def test_channel_display_name_none_guild_falls_back_to_id():
+    # The list/upcoming call site passes guild=None; must not blow up.
+    assert au.channel_display_name(None, 7) == 'Channel 7'
+
+
+def test_channel_display_name_truncates_to_discord_label_cap():
+    # A 100-char channel name yields a 101-char '#name'; capped to 100 with an ellipsis.
+    label = au.channel_display_name(_guild({7: 'x' * 100}), 7)
+    assert len(label) == 100
+    assert label.endswith('…')
+
+
 # --- post_embed -------------------------------------------------------------
 
 
