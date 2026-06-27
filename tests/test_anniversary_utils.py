@@ -218,7 +218,7 @@ def test_build_pending_entry_renders_through_post_embed():
         month=6, day=25, year=2021, channel_id=42)
     embed = au.post_embed(pending, 2026)
     assert embed.title == 'Our Wedding'
-    assert embed.description == '*We remember you*'
+    assert embed.description == 'We remember you'
     assert embed.footer.text == '5th Year · June 25'
 
 
@@ -248,9 +248,11 @@ def test_post_embed_title_preserved():
     assert au.post_embed(_entry(title='Our Wedding'), 2026).title == 'Our Wedding'
 
 
-def test_post_embed_message_rendered_italic():
-    embed = au.post_embed(_entry(message='We remember you'), 2026)
-    assert embed.description == '*We remember you*'
+def test_post_embed_message_rendered_verbatim():
+    # The submitter's text is used as-is so their own Markdown survives; the embed
+    # adds no wrapping formatting of its own.
+    embed = au.post_embed(_entry(message='We **remember** you'), 2026)
+    assert embed.description == 'We **remember** you'
 
 
 def test_post_embed_blank_message_omits_description():

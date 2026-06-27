@@ -161,16 +161,17 @@ def post_embed(entry, current_year: int) -> nextcord.Embed:
     """Build the gentle remembrance embed posted on the day.
 
     The title is the entry's heading (or "Anniversary"); the body is the
-    submitter's message rendered italic, or omitted when blank. The footer always
-    carries the ``Month Day`` and, only when a recorded year yields a positive
-    count, is prefixed with ``{ordinal} {label} · `` — e.g. ``3rd Anniversary ·
-    June 25``. Deliberately carries NO gif and NO "happy": the tone is the
-    submitter's to set."""
+    submitter's message verbatim (their own Markdown is preserved, not wrapped in
+    any formatting), or omitted when blank. The footer always carries the
+    ``Month Day`` and, only when a recorded year yields a positive count, is
+    prefixed with ``{ordinal} {label} · `` — e.g. ``3rd Anniversary · June 25``.
+    Deliberately carries NO gif and NO "happy": the tone is the submitter's to
+    set."""
     message = (entry.message or '').strip()
     embed = nextcord.Embed(
         color=messages.INFO_COLOR,
         title=title_or_default(entry.title),
-        description=f'*{message}*' if message else None,
+        description=message or None,
     )
     footer = f'{calendar.month_name[entry.month]} {entry.day}'
     count = anniversary_count(entry.year, current_year)

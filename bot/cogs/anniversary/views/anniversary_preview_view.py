@@ -3,8 +3,9 @@
 The modal no longer persists on submit; instead it builds a not-yet-saved pending
 entry, renders ``post_embed`` for it, and attaches this view. **Confirm** is what
 actually writes (``anniversary_helper.add`` for a new entry, ``update`` for an
-edit), then swaps the preview for a success state with both buttons disabled.
-**Edit** reopens ``AnniversaryModal`` prefilled from the pending values so the
+edit), then strips the preview embed and buttons down to a plain confirmation
+line so the message reads as resolved. **Edit** reopens ``AnniversaryModal``
+prefilled from the pending values so the
 submitter can correct a field before saving — nothing is stored until Confirm.
 
 Two Discord constraints shape this:
@@ -21,7 +22,6 @@ re-open uses exactly what the submitter last saw.
 """
 import nextcord
 
-from bot.cogs.anniversary import anniversary_utils
 from bot.cogs.anniversary.views.anniversary_modal import AnniversaryModal
 from bot.utils import messages
 from db.helpers import anniversary_helper
@@ -69,14 +69,12 @@ class AnniversaryPreviewView(nextcord.ui.View):
             return await interaction.response.send_message(
                 embed=messages.error(collision), ephemeral=True)
 
-        # Persisted: disable both buttons and replace the preview with the saved
-        # entry's embed so the message reads as a finished, immutable confirmation.
-        for child in self.children:
-            child.disabled = True
-        embed = anniversary_utils.post_embed(saved, nextcord.utils.utcnow().year)
+        # Persisted: strip the preview embed and the buttons, leaving only the
+        # confirmation line, so the message reads as a finished, resolved action
+        # rather than a still-actionable preview.
         await interaction.response.edit_message(
             content=f'{verb}! It will appear in <#{saved.channel_id}>.',
-            embed=embed, view=self)
+            embed=None, view=None)
         self.stop()
 
     @nextcord.ui.button(label='Edit', style=nextcord.ButtonStyle.gray)

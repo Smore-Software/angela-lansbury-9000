@@ -55,15 +55,19 @@ class AnniversaryModal(nextcord.ui.Modal):
             default_value=(str(source.year) if source and source.year else None))
         self.add_item(self.year_input)
 
-        # Required + autofilled like the title; the label drives "Nth <suffix>". The
-        # 34-char label sits within Discord's 45-char cap; max_length stays at 100.
+        # Optional like the year (an empty value renders "Nth Anniversary"), but
+        # still autofilled with "Anniversary" so the common case is one tap. The
+        # label drives "Nth <suffix>"; its 37 chars sit within Discord's 45-char
+        # cap, and max_length stays at 100.
         self.label_input = nextcord.ui.TextInput(
-            label='Count suffix (e.g. "Nth [Suffix]")', required=True, max_length=100,
+            label='Count suffix (becomes "Nth [Suffix]")', required=False, max_length=100,
             default_value=(source.count_label if source else None) or 'Anniversary')
         self.add_item(self.label_input)
 
         self.message_input = nextcord.ui.TextInput(
-            label='Message', placeholder='Your own words (optional).', required=False,
+            label='Message',
+            placeholder='Your own words (optional). Markdown is supported.',
+            required=False,
             style=nextcord.TextInputStyle.paragraph, max_length=1500,
             default_value=(source.message if source else None))
         self.add_item(self.message_input)

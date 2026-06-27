@@ -57,7 +57,7 @@ def _button(view, label):
 # --- Confirm: add mode ------------------------------------------------------
 
 
-async def test_confirm_add_calls_add_and_disables_buttons(monkeypatch):
+async def test_confirm_add_calls_add_and_resolves_message(monkeypatch):
     captured = {}
 
     def fake_add(**kwargs):
@@ -80,10 +80,11 @@ async def test_confirm_add_calls_add_and_disables_buttons(monkeypatch):
         'Wedding', 'Year', 'hi')
     assert (captured['month'], captured['day'], captured['year']) == (6, 25, 2020)
 
-    # The message is replaced by the saved embed and both buttons are disabled.
+    # The preview embed and buttons are stripped, leaving only the confirmation
+    # line, so the message reads as a resolved action.
     assert interaction.response.edited['content'] == 'Saved! It will appear in <#42>.'
-    assert interaction.response.edited['embed'].title == 'Wedding'
-    assert all(child.disabled for child in view.children)
+    assert interaction.response.edited['embed'] is None
+    assert interaction.response.edited['view'] is None
 
 
 async def test_confirm_add_collision_reports_error_and_keeps_buttons(monkeypatch):
@@ -129,7 +130,8 @@ async def test_confirm_edit_calls_update_on_target_entry(monkeypatch):
     assert captured['title'] == 'Renamed'
     assert captured['channel_id'] == 7
     assert interaction.response.edited['content'] == 'Updated! It will appear in <#7>.'
-    assert all(child.disabled for child in view.children)
+    assert interaction.response.edited['embed'] is None
+    assert interaction.response.edited['view'] is None
 
 
 async def test_confirm_edit_collision_reports_error(monkeypatch):
