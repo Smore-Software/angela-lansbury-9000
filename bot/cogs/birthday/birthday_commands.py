@@ -1,5 +1,4 @@
 from datetime import datetime, timezone, time
-import asyncio
 import calendar
 from typing import List
 
@@ -10,6 +9,7 @@ from nextcord.ext import commands, tasks
 
 from bot.utils import messages, bot_utils
 from bot.utils.constants import TESTING_GUILD_ID
+from bot.utils.loop_recovery import recover_loop
 from db.helpers import birthday_helper, guild_config_helper
 
 
@@ -135,9 +135,7 @@ class BirthdayCommands(commands.Cog):
     @post_birthdays.error
     async def post_birthdays_error(self, e):
         print(e)
-        sentry_sdk.capture_exception(e)
-        await asyncio.sleep(60)
-        self.post_birthdays.restart()
+        await recover_loop(self.post_birthdays, e)
 
     ##############################
     # Admin Slash Commands

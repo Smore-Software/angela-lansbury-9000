@@ -6,7 +6,6 @@ AutoDeleteCommands
 This cog holds the task coroutine responsible for identifying and deleting stale messages as well as the slash
 commands listed above that configure channels to get messages auto-deleted.
 """
-import asyncio
 from typing import List
 
 import nextcord
@@ -17,6 +16,7 @@ from nextcord.ext import commands, tasks
 from bot.cogs.auto_delete import auto_delete_helper
 from bot.utils import messages
 from bot.utils.bot_utils import get_or_fetch_guild, get_or_fetch_channel
+from bot.utils.loop_recovery import recover_loop
 from db import AutoDeleteType, DB, AutoDeleteChannelConfig
 
 
@@ -72,9 +72,7 @@ class AutoDeleteCommands(commands.Cog):
 
     @check_for_stale_messages.error
     async def check_for_stale_messages_error(self, e):
-        sentry_sdk.capture_exception(e)
-        await asyncio.sleep(60)
-        self.check_for_stale_messages.restart()
+        await recover_loop(self.check_for_stale_messages, e)
 
     @slash_command(name='channel-auto-delete', default_member_permissions=Permissions(manage_guild=True))
     async def auto_delete(self, interaction: Interaction):

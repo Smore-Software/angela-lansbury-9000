@@ -17,7 +17,6 @@ runs once at 12:00 UTC, posting one neutral embed per today's entry to its own
 channel and skipping entries whose channel was deregistered or whose submitter has
 left the guild.
 """
-import asyncio
 from datetime import datetime, time, timezone
 
 import nextcord
@@ -28,6 +27,7 @@ from nextcord.ext import commands, tasks
 from bot.cogs.anniversary import anniversary_utils
 from bot.cogs.anniversary.views.channel_choice_view import ChannelChoiceView
 from bot.utils import messages, bot_utils
+from bot.utils.loop_recovery import recover_loop
 from bot.utils.views import EmbedPaginatorView
 from db.helpers import anniversary_helper, anniversary_channel_helper
 
@@ -106,9 +106,7 @@ class AnniversaryCommands(commands.Cog):
 
     @post_anniversaries.error
     async def post_anniversaries_error(self, e):
-        sentry_sdk.capture_exception(e)
-        await asyncio.sleep(60)
-        self.post_anniversaries.restart()
+        await recover_loop(self.post_anniversaries, e)
 
     # --- /anniversary (open to everyone) ------------------------------------
 

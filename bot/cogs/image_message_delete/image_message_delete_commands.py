@@ -5,7 +5,6 @@ This cog doesn't have any commands (yet), but it does hold the looping task that
 have marked for eventual deletion.
 """
 
-import asyncio
 import datetime as dt
 from typing import List
 
@@ -18,6 +17,7 @@ from nextcord.ext import commands, tasks
 from bot.cogs.image_message_delete.views.configure_prompts_view import ConfigurePromptsView
 from bot.utils import messages
 from bot.utils.constants import BUMPERS_GUILD_ID, TESTING_GUILD_ID
+from bot.utils.loop_recovery import recover_loop
 from db import DB, ImageMessageToDelete
 from db.helpers import image_message_helper, user_settings_helper, guild_config_helper
 
@@ -72,14 +72,11 @@ class ImageMessageDeleteCommands(commands.Cog):
             except Exception as e:
                 sentry_sdk.capture_exception(e)
                 db_message_to_delete.has_failed = True
-            finally:
-                DB.s.commit()
+            DB.s.commit()
 
     @check_for_expired_messages.error
     async def check_for_expired_messages_error(self, e):
-        sentry_sdk.capture_exception(e)
-        await asyncio.sleep(60)
-        self.check_for_expired_messages.restart()
+        await recover_loop(self.check_for_expired_messages, e)
 
     @slash_command(name='image-prompts', force_global=True)
     async def image_deleter_settings(self, interaction: Interaction):
