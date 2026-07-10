@@ -3,6 +3,7 @@ import sentry_sdk
 from nextcord.ext import commands
 
 from bot.events.handlers import temp_discussion_handler, starboard_handler
+from db.session_guard import recover_session
 
 
 def register_event(bot: commands.Bot):
@@ -15,7 +16,9 @@ def register_event(bot: commands.Bot):
             await temp_discussion_handler.handle_closure_react(bot, payload)
         except Exception as e:
             sentry_sdk.capture_exception(e)
+            recover_session()
         try:
             await starboard_handler.handle_reaction_add(bot, payload)
         except Exception as e:
             sentry_sdk.capture_exception(e)
+            recover_session()

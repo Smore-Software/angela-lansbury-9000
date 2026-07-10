@@ -3,6 +3,7 @@ import sentry_sdk
 from nextcord.ext import commands
 
 from bot.utils.logger import get_logger, LoggingLevel
+from db.session_guard import recover_session
 
 
 def register_event(bot: commands.Bot):
@@ -17,3 +18,4 @@ def register_event(bot: commands.Bot):
                                        'https://discord.gg/NQm54zS82w')
         except Exception as e:
             sentry_sdk.capture_exception(e)
+            recover_session()

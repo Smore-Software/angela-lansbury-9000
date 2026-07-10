@@ -3,6 +3,7 @@ import sentry_sdk
 from nextcord.ext import commands
 
 from bot.events.handlers import starboard_handler
+from db.session_guard import recover_session
 
 
 def register_event(bot: commands.Bot):
@@ -14,3 +15,4 @@ def register_event(bot: commands.Bot):
             await starboard_handler.handle_message_delete(bot, payload)
         except Exception as e:
             sentry_sdk.capture_exception(e)
+            recover_session()

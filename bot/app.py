@@ -14,6 +14,7 @@ from bot.events import on_member_join_event, on_guild_join_event, on_raw_reactio
     on_raw_reaction_remove_event, on_raw_message_delete_event
 from bot.events.on_message_event import register_event
 from bot.utils import logger, messages
+from db.session_guard import recover_session
 
 intents = nextcord.Intents(messages=True, message_content=True, guild_reactions=True, guilds=True)
 config = Config()
@@ -52,9 +53,17 @@ async def on_application_command_error(inter: nextcord.Interaction, error):
             embed=messages.error(f"You are being rate-limited! Retry in `{error.retry_after}` seconds."),
             ephemeral=True
         )
+        return
 
-    else:
-        raise error
+    recover_session()
+    try:
+        await inter.send(
+            embed=messages.error('Something went wrong running that command. Please try again.'),
+            ephemeral=True,
+        )
+    except Exception:
+        pass  # interaction may already be acknowledged or expired (see Sentry BUMPERS-BOT-8N)
+    raise error
 
 
 def run():
