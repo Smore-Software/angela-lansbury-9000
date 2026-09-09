@@ -28,5 +28,12 @@
         </library>
       </libraries>
     </data-source>
+    <data-source source="LOCAL" name="bumper@192.168.1.247" uuid="f5f832a1-af4e-4a7f-ac78-3a3cf82fe75c">
+      <driver-ref>postgresql</driver-ref>
+      <synchronize>true</synchronize>
+      <jdbc-driver>org.postgresql.Driver</jdbc-driver>
+      <jdbc-url>jdbc:postgresql://192.168.1.247:5432/bumper</jdbc-url>
+      <working-dir>$ProjectFileDir$</working-dir>
+    </data-source>
   </component>
 </project>

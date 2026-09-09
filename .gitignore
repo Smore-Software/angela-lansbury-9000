@@ -296,3 +296,10 @@ pyrightconfig.json
 
 .beads/
 .perles/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.claude/
+backups/
