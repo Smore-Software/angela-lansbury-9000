@@ -146,15 +146,6 @@ def upsert_entry(config_id: int, guild_id: int, original_message_id: int,
             row.posted_message_id = posted_message_id
         if star_count is not None:
             row.star_count = star_count
-        # `bypassed_role_id` is deliberately NOT written here. It records the EVENT
-        # that first put this entry on the board, so it is set on the insert branch
-        # and never again: an entry that already exists was already posted, so no
-        # later reaction can be the thing that posted it. Guarding only against
-        # overwriting a non-NULL stamp would still let a privileged member reacting
-        # to an already-posted, threshold-earned entry stamp it from NULL — the exact
-        # mislabeling this column exists to avoid. Not writing also means a count
-        # refresh cannot wipe an existing stamp, and clearing the board's bypass role
-        # never rewrites history.
         DB.s.commit()
         return row
 

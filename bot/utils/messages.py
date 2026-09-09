@@ -37,15 +37,6 @@ def starboard_content(emoji_display: str, count: int, jump_url: str,
 
 
 def starboard_bypass_note(role_name: str | None, threshold: int) -> str:
-    """Why a below-threshold message is on the board. Falls back to an unnamed
-    phrasing when the role can no longer be resolved (deleted role / cold cache)
-    — better a vague note than a note that says ``None``.
-
-    The role name renders as plain bold text, never a ``<@&id>`` mention, so the
-    line pings nobody and needs no ``allowed_mentions`` handling. It is not
-    escaped: role names are admin-controlled, the same trust the existing
-    custom-emoji rendering already assumes.
-    """
     who = f'the **{role_name}** role' if role_name else 'a privileged role'
     return f'Someone with {who} bypassed the {threshold}-reaction threshold.'
 

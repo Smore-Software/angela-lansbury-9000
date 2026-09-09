@@ -238,8 +238,6 @@ class StarboardCommands(commands.Cog):
             return await interaction.send(
                 embed=messages.error('No such starboard on this server.'), ephemeral=True)
 
-        # Setting and clearing the bypass role in one invocation is ambiguous, so
-        # it's rejected rather than silently picking a winner.
         if role is not None and clear_role:
             return await interaction.send(
                 embed=messages.error('Pass either `role` or `clear_role`, not both.'),
@@ -265,10 +263,6 @@ class StarboardCommands(commands.Cog):
                     ephemeral=True)
             updates['emoji'] = emoji_name
             updates['emoji_id'] = emoji_id
-        # An omitted optional bool arrives as None, which `elif clear_role` treats
-        # the same as False — so leaving it off is a no-op, and the bypass role
-        # rides in the same `updates` dict as everything else, keeping the
-        # "Nothing to update" guard below honest.
         if role is not None:
             role_error = bypass_role_error(role)
             if role_error:
