@@ -70,7 +70,7 @@ def bypass_role_error(role) -> str | None:
     if role is None:
         return None
     if role.is_default():
-        return ('`@everyone` can\'t be a bypass role — every reaction would '
+        return ('`@everyone` can\'t be a bypass role: every reaction would '
                 'skip the threshold.')
     return None
 
