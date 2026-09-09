@@ -53,10 +53,12 @@ SNOWFLAKE_COLUMNS = [
     (StarboardEntry, 'original_channel_id'),
     (StarboardEntry, 'posted_message_id'),
     (StarboardEntry, 'author_id'),
+    (StarboardEntry, 'bypassed_role_id'),
 
     (StarboardConfig, 'guild_id'),
     (StarboardConfig, 'target_channel_id'),
     (StarboardConfig, 'emoji_id'),
+    (StarboardConfig, 'bypass_role_id'),
 
     (UserChannelSettings, 'guild_id'),
     (UserChannelSettings, 'channel_id'),

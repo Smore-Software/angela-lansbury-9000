@@ -69,7 +69,8 @@ def find_duplicate_config(guild_id: int, target_channel_id: int, emoji: str,
 
 def add_config(guild_id: int, target_channel_id: int, emoji: str,
                emoji_id: Optional[int] = None, threshold: int = 5,
-               enabled: bool = True) -> StarboardConfig:
+               enabled: bool = True,
+               bypass_role_id: Optional[int] = None) -> StarboardConfig:
     config = StarboardConfig(
         guild_id=guild_id,
         target_channel_id=target_channel_id,
@@ -77,6 +78,7 @@ def add_config(guild_id: int, target_channel_id: int, emoji: str,
         emoji_id=emoji_id,
         threshold=threshold,
         enabled=enabled,
+        bypass_role_id=bypass_role_id,
     )
     DB.s.add(config)
     DB.s.commit()
@@ -121,14 +123,21 @@ def get_entry(config_id: int, message_id: int) -> Optional[StarboardEntry]:
 def upsert_entry(config_id: int, guild_id: int, original_message_id: int,
                  original_channel_id: int, author_id: int,
                  posted_message_id: Optional[int] = None,
-                 star_count: Optional[int] = None) -> Optional[StarboardEntry]:
+                 star_count: Optional[int] = None,
+                 bypassed_role_id: Optional[int] = None) -> Optional[StarboardEntry]:
     """Insert a new entry, or update the existing one for ``(config, message)``.
 
     Idempotent on ``(starboard_config_id, original_message_id)``. ``posted_message_id``
-    and ``star_count`` are only overwritten on an update when explicitly provided
-    (not ``None``), so a partial upsert never silently clears a field. A racing
-    duplicate insert hits the unique constraint; we catch ``IntegrityError``,
-    roll back, and fall back to updating the row the other writer created.
+    and ``star_count`` are only overwritten on an update when explicitly provided (not
+    ``None``), so a partial upsert never silently clears a field. ``bypassed_role_id``
+    is stricter still: it is written on insert only and is immutable thereafter,
+    because it records the event that first put the entry on the board. A later count
+    refresh therefore cannot wipe the stamp the subtext line depends on, and a
+    privileged member reacting to an already-posted entry cannot retro-stamp one that
+    earned its place. A racing duplicate insert hits the unique constraint; we catch
+    ``IntegrityError``, roll back, and fall back to updating the row the other writer
+    created — the loser's stamp is dropped, since the winner's insert is the write that
+    actually caused the post.
     """
     def _apply_update(row: StarboardEntry) -> StarboardEntry:
         row.original_channel_id = original_channel_id
@@ -137,6 +146,15 @@ def upsert_entry(config_id: int, guild_id: int, original_message_id: int,
             row.posted_message_id = posted_message_id
         if star_count is not None:
             row.star_count = star_count
+        # `bypassed_role_id` is deliberately NOT written here. It records the EVENT
+        # that first put this entry on the board, so it is set on the insert branch
+        # and never again: an entry that already exists was already posted, so no
+        # later reaction can be the thing that posted it. Guarding only against
+        # overwriting a non-NULL stamp would still let a privileged member reacting
+        # to an already-posted, threshold-earned entry stamp it from NULL — the exact
+        # mislabeling this column exists to avoid. Not writing also means a count
+        # refresh cannot wipe an existing stamp, and clearing the board's bypass role
+        # never rewrites history.
         DB.s.commit()
         return row
 
@@ -152,6 +170,7 @@ def upsert_entry(config_id: int, guild_id: int, original_message_id: int,
         author_id=author_id,
         posted_message_id=posted_message_id,
         star_count=star_count if star_count is not None else 0,
+        bypassed_role_id=bypassed_role_id,
     )
     try:
         DB.s.add(entry)

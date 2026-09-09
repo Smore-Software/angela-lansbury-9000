@@ -4,6 +4,8 @@
 message; the reaction handler reads counts from here rather than from the gateway
 payload, which carries no count. ``parse_emoji_input`` turns the raw string an
 admin types into ``/starboard add`` into the ``(name, id)`` pair the config stores.
+``member_has_bypass_role`` answers whether a reactor carries a board's optional
+bypass role.
 """
 import re
 
@@ -53,3 +55,20 @@ def reaction_count(message, config) -> int:
         if starboard_helper.emoji_matches(reaction.emoji, config):
             return reaction.count
     return 0
+
+
+def member_has_bypass_role(member, config) -> bool:
+    """True when ``config`` names a bypass role and ``member`` carries it.
+
+    ``member`` is ``payload.member``: nextcord populates it only for REACTION_ADD
+    inside a guild, built from the gateway event's own member object
+    (nextcord/state.py:1298-1306), so this needs no privileged members intent —
+    bot/app.py:19 does not request one. Read defensively rather than as
+    ``member.roles``: the reaction-remove path always passes ``None``, and treating
+    any member we cannot read roles off as simply not privileged fails closed — the
+    board falls back to its ordinary threshold instead of raising on the hot path.
+    """
+    if config.bypass_role_id is None or member is None:
+        return False
+    return any(getattr(role, 'id', None) == config.bypass_role_id
+               for role in getattr(member, 'roles', None) or [])

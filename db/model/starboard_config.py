@@ -14,3 +14,7 @@ class StarboardConfig(DB.Model):
     emoji_id: Mapped[int] = mapped_column(BigInteger, nullable=True)  # set only for custom emoji
     threshold: Mapped[int] = mapped_column(default=5)
     enabled: Mapped[bool] = mapped_column(default=True)
+
+    # Optional privileged role: a reaction from a member carrying this role posts
+    # the message immediately, ignoring `threshold`. NULL = no bypass (the default).
+    bypass_role_id: Mapped[int] = mapped_column(BigInteger, nullable=True)

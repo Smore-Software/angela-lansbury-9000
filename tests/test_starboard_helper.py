@@ -56,6 +56,60 @@ def test_get_config_missing_returns_none():
     assert starboard_helper.get_config(99999) is None
 
 
+# --- Bypass role on the config ----------------------------------------------
+
+
+def test_add_config_defaults_bypass_role_to_none():
+    # A board created without the kwarg behaves exactly as before: no bypass.
+    cfg = starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐')
+    assert starboard_helper.get_config(cfg.id).bypass_role_id is None
+
+
+def test_add_config_persists_bypass_role():
+    cfg = starboard_helper.add_config(
+        guild_id=1, target_channel_id=10, emoji='⭐', bypass_role_id=77)
+    assert starboard_helper.get_config(cfg.id).bypass_role_id == 77
+
+
+def _shadow_config(guild_id=1, target_channel_id=11, emoji='🔥'):
+    """Insert an enabled config WITHOUT going through a mutator, so it is invisible
+    to an un-invalidated cache.
+
+    Asserting a changed *value* through ``get_enabled_configs`` proves nothing about
+    invalidation: the cache holds the very same identity-mapped instance that
+    ``update_config`` mutates via ``setattr``, so a stale cache reports the new value
+    too. Only a change in list *membership* is beyond a stale cache's reach — the same
+    mechanism ``test_mutator_invalidates_cache`` relies on.
+    """
+    DB.s.add(StarboardConfig(guild_id=guild_id, target_channel_id=target_channel_id,
+                             emoji=emoji, threshold=5, enabled=True))
+    DB.s.commit()
+
+
+def test_update_config_sets_bypass_role_and_invalidates_cache():
+    cfg = starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐')
+    assert len(starboard_helper.get_enabled_configs(1)) == 1  # cache populated
+    _shadow_config()
+    starboard_helper.update_config(cfg.id, bypass_role_id=88)
+    assert starboard_helper.get_config(cfg.id).bypass_role_id == 88
+    # A stale cache would still report one board; only a real invalidation re-queries.
+    configs = starboard_helper.get_enabled_configs(1)
+    assert {c.target_channel_id: c.bypass_role_id for c in configs} == {10: 88, 11: None}
+
+
+def test_update_config_clears_bypass_role_and_invalidates_cache():
+    cfg = starboard_helper.add_config(
+        guild_id=1, target_channel_id=10, emoji='⭐', bypass_role_id=88)
+    assert len(starboard_helper.get_enabled_configs(1)) == 1  # cache populated
+    _shadow_config()
+    # `**kw` carries an explicit None straight through setattr, so the /starboard
+    # edit clear_role option needs no dedicated helper.
+    starboard_helper.update_config(cfg.id, bypass_role_id=None)
+    assert starboard_helper.get_config(cfg.id).bypass_role_id is None
+    configs = starboard_helper.get_enabled_configs(1)
+    assert {c.target_channel_id: c.bypass_role_id for c in configs} == {10: None, 11: None}
+
+
 # --- find_duplicate_config (channel + emoji uniqueness) ---------------------
 
 
@@ -224,6 +278,62 @@ def test_upsert_entry_partial_update_preserves_star_count():
         original_channel_id=20, author_id=42, posted_message_id=901)
     assert updated.posted_message_id == 901
     assert updated.star_count == 7
+
+
+def test_upsert_entry_persists_bypassed_role_on_insert():
+    cfg = _add_cfg()
+    entry = starboard_helper.upsert_entry(
+        config_id=cfg.id, guild_id=1, original_message_id=500,
+        original_channel_id=20, author_id=42, posted_message_id=900, star_count=1,
+        bypassed_role_id=77)
+    assert starboard_helper.get_entry(cfg.id, 500).bypassed_role_id == 77
+    assert entry.bypassed_role_id == 77
+
+
+def test_upsert_entry_defaults_bypassed_role_to_none():
+    cfg = _add_cfg()
+    starboard_helper.upsert_entry(
+        config_id=cfg.id, guild_id=1, original_message_id=500,
+        original_channel_id=20, author_id=42, posted_message_id=900, star_count=5)
+    assert starboard_helper.get_entry(cfg.id, 500).bypassed_role_id is None
+
+
+def test_upsert_entry_count_refresh_preserves_bypassed_role():
+    # The regression that matters: every later count edit omits bypassed_role_id,
+    # and must NOT wipe the stamp the subtext line renders from.
+    cfg = _add_cfg()
+    starboard_helper.upsert_entry(
+        config_id=cfg.id, guild_id=1, original_message_id=500,
+        original_channel_id=20, author_id=42, posted_message_id=900, star_count=1,
+        bypassed_role_id=77)
+    updated = starboard_helper.upsert_entry(
+        config_id=cfg.id, guild_id=1, original_message_id=500,
+        original_channel_id=20, author_id=42, star_count=9)
+    assert updated.star_count == 9
+    assert updated.bypassed_role_id == 77
+
+
+def test_upsert_entry_never_retro_stamps_bypassed_role():
+    # The stamp records the EVENT that first put the entry on the board. A post that
+    # earned its place must not be relabelled "bypassed" because a privileged member
+    # reacted to it afterwards — and a second bypass role cannot overwrite the first.
+    cfg = _add_cfg()
+    starboard_helper.upsert_entry(
+        config_id=cfg.id, guild_id=1, original_message_id=500,
+        original_channel_id=20, author_id=42, posted_message_id=900, star_count=5)
+    earned = starboard_helper.upsert_entry(
+        config_id=cfg.id, guild_id=1, original_message_id=500,
+        original_channel_id=20, author_id=42, star_count=6, bypassed_role_id=77)
+    assert earned.bypassed_role_id is None
+
+    starboard_helper.upsert_entry(
+        config_id=cfg.id, guild_id=1, original_message_id=501,
+        original_channel_id=20, author_id=42, posted_message_id=901, star_count=1,
+        bypassed_role_id=77)
+    stamped = starboard_helper.upsert_entry(
+        config_id=cfg.id, guild_id=1, original_message_id=501,
+        original_channel_id=20, author_id=42, star_count=2, bypassed_role_id=99)
+    assert stamped.bypassed_role_id == 77
 
 
 def test_get_entry_returns_matching_row_or_none():

@@ -16,6 +16,12 @@ class StarboardEntry(DB.Model):
     author_id: Mapped[int] = mapped_column(BigInteger)
     star_count: Mapped[int] = mapped_column(default=0)
 
+    # The role id that bypassed the threshold when this entry was first posted;
+    # NULL when it crossed the threshold normally. Drives the "bypassed" subtext,
+    # which must NOT appear on a post that earned its place and was later
+    # un-reacted back below the threshold.
+    bypassed_role_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
+
     # Each board posts a given message at most once; makes concurrent inserts collide
     # deterministically. NO uniqueness on (guild_id, emoji) — fan-out is intentional.
     __table_args__ = (UniqueConstraint('starboard_config_id', 'original_message_id'),)

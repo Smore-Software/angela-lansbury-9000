@@ -1,9 +1,10 @@
-"""Tests for the pure starboard helpers: ``reaction_count`` (count extraction)
-and ``messages.starboard_embed`` (the repost embed). No mocks, no I/O."""
+"""Tests for the pure starboard helpers: ``reaction_count`` (count extraction),
+``member_has_bypass_role`` (the bypass predicate) and ``messages.starboard_embed``
+(the repost embed). No mocks, no I/O."""
 import datetime
 from types import SimpleNamespace
 
-from bot.cogs.starboard.starboard_utils import reaction_count
+from bot.cogs.starboard.starboard_utils import member_has_bypass_role, reaction_count
 from bot.utils import messages
 from db.model.starboard_config import StarboardConfig
 
@@ -58,6 +59,56 @@ def test_reaction_count_matches_custom_emoji_by_id(emoji_factory):
     cfg = StarboardConfig(emoji='blob', emoji_id=12345)
     msg = _message(reactions=_reactions((emoji_factory('renamed', id=12345), 4)))
     assert reaction_count(msg, cfg) == 4
+
+
+# --- member_has_bypass_role -------------------------------------------------
+
+
+def _member(*role_ids):
+    return SimpleNamespace(id=42, roles=[SimpleNamespace(id=rid) for rid in role_ids])
+
+
+def test_member_has_bypass_role_false_when_board_has_no_bypass_role():
+    # The default board: no bypass configured, so no reactor can ever bypass it.
+    cfg = StarboardConfig(emoji='⭐', bypass_role_id=None)
+    assert member_has_bypass_role(_member(77), cfg) is False
+
+
+def test_member_has_bypass_role_false_when_no_bypass_role_and_role_id_unreadable():
+    # Causally covers the `bypass_role_id is None` guard. Without it the comparison
+    # becomes `getattr(role, 'id', None) == None`, which a role we cannot read an id
+    # off would satisfy — turning an unconfigured board into one everybody bypasses.
+    cfg = StarboardConfig(emoji='⭐', bypass_role_id=None)
+    assert member_has_bypass_role(
+        SimpleNamespace(id=42, roles=[SimpleNamespace()]), cfg) is False
+
+
+def test_member_has_bypass_role_false_when_member_missing():
+    # The reaction-remove path always passes ``payload.member is None``.
+    cfg = StarboardConfig(emoji='⭐', bypass_role_id=77)
+    assert member_has_bypass_role(None, cfg) is False
+
+
+def test_member_has_bypass_role_false_when_member_holds_other_roles():
+    cfg = StarboardConfig(emoji='⭐', bypass_role_id=77)
+    assert member_has_bypass_role(_member(1, 2, 3), cfg) is False
+
+
+def test_member_has_bypass_role_true_when_role_among_several():
+    cfg = StarboardConfig(emoji='⭐', bypass_role_id=77)
+    assert member_has_bypass_role(_member(1, 77, 3), cfg) is True
+
+
+def test_member_has_bypass_role_false_when_member_has_no_roles():
+    cfg = StarboardConfig(emoji='⭐', bypass_role_id=77)
+    assert member_has_bypass_role(_member(), cfg) is False
+
+
+def test_member_has_bypass_role_false_when_member_lacks_roles_attribute():
+    # Existing handler-test fakes are bare ``SimpleNamespace(id=...)`` with no
+    # ``roles`` at all; the predicate must tolerate that rather than raise.
+    cfg = StarboardConfig(emoji='⭐', bypass_role_id=77)
+    assert member_has_bypass_role(SimpleNamespace(id=42), cfg) is False
 
 
 # --- starboard_embed --------------------------------------------------------
