@@ -1,6 +1,11 @@
 """Starboard gateway-event logic: reaction add/remove and original-message
 delete cleanup.
 
+A board may name an optional bypass role: a reaction from a member carrying it
+posts the message immediately, ignoring the threshold, and the repost carries a
+``-#`` subtext line naming the role for as long as its live count stays below
+that threshold.
+
 Counting is cache-first — nextcord keeps ``Reaction.count`` live in memory for
 cached messages, so the common path costs zero REST calls; ``fetch_message`` runs
 only on a cache miss. A board posts a message once (first threshold crossing) and
@@ -14,7 +19,7 @@ posts, not a bug worth alerting on, and it must not crash the event.
 """
 import nextcord
 
-from bot.cogs.starboard.starboard_utils import reaction_count
+from bot.cogs.starboard.starboard_utils import member_has_bypass_role, reaction_count
 from bot.utils import bot_utils, messages
 from db.helpers import starboard_helper
 
@@ -26,6 +31,17 @@ def _emoji_display(config) -> str:
     if config.emoji_id is not None:
         return f'<:{config.emoji}:{config.emoji_id}>'
     return config.emoji
+
+
+def _bypass_role_name(message, role_id):
+    """Resolve a bypass role's current display name from the guild cache, or
+    ``None`` when the guild or the role is unavailable (deleted role, cold cache,
+    a message we could only reach without its guild). Resolving live rather than
+    storing a name keeps a renamed role correct on every later edit."""
+    guild = getattr(message, 'guild', None)
+    if guild is None:
+        return None
+    return getattr(guild.get_role(role_id), 'name', None)
 
 
 def _matching_configs(payload):
@@ -64,7 +80,12 @@ async def handle_reaction_add(bot, payload):
     source_channel = getattr(message.channel, 'name', None)
     for config in matches:
         count = reaction_count(message, config)
-        await post_or_edit(bot, config, message, count, source_channel)
+        # `payload.member` is populated only for REACTION_ADD inside a guild, off
+        # the gateway event's own member object — no REST call, no members intent.
+        bypass_role_id = (config.bypass_role_id
+                          if member_has_bypass_role(payload.member, config) else None)
+        await post_or_edit(bot, config, message, count, source_channel,
+                           bypass_role_id=bypass_role_id)
 
 
 async def handle_reaction_remove(bot, payload):
@@ -85,19 +106,45 @@ async def handle_reaction_remove(bot, payload):
         await post_or_edit(bot, config, message, count, source_channel)
 
 
-async def post_or_edit(bot, config, message, count, source_channel):
+async def post_or_edit(bot, config, message, count, source_channel, bypass_role_id=None):
     """Post the message to ``config``'s target the first time it crosses the
-    threshold, then edit the live count on every later change."""
+    threshold — or the first time a member carrying the board's bypass role
+    reacts — then edit the live count on every later change.
+
+    ``bypass_role_id`` is the board's bypass role when *this* reactor carries it,
+    else ``None``. It is always ``None`` on the un-react path, which cannot post.
+    """
     target = await bot_utils.get_or_fetch_channel(bot, config.target_channel_id)
     if target is None:
         return
-    content = messages.starboard_content(_emoji_display(config), count, message.jump_url)
-    embed = messages.starboard_embed(message, source_channel)
+    # Fetched before the content is built: the subtext depends on the entry's
+    # stored bypass. `get_or_fetch_channel` stays first so the "target channel
+    # gone" early-return still costs no DB read.
     entry = starboard_helper.get_entry(config.id, message.id)
 
+    # Flag the EVENT, not the reactor: only a reaction that actually caused a
+    # below-threshold post counts as a bypass. A privileged member who merely
+    # happens to be the Nth reactor on a normally-crossing post must NOT stamp the
+    # entry, or the subtext wrongly appears if reactions later fall away.
+    bypassed_now = bypass_role_id if (entry is None and count < config.threshold) else None
+
+    # An existing entry is the sole authority on its own bypass state — never fall
+    # back to the current reactor, or an ordinary post gets relabelled.
+    note_role_id = bypassed_now if entry is None else entry.bypassed_role_id
+    note = None
+    if note_role_id is not None and count < config.threshold:
+        # Re-decided on every render, not latched: the note disappears once real
+        # reactions reach the threshold and returns if they fall back below.
+        note = messages.starboard_bypass_note(
+            _bypass_role_name(message, note_role_id), config.threshold)
+
+    content = messages.starboard_content(
+        _emoji_display(config), count, message.jump_url, bypass_note=note)
+    embed = messages.starboard_embed(message, source_channel)
+
     if entry is None:
-        if count < config.threshold:
-            return  # not yet eligible
+        if count < config.threshold and bypass_role_id is None:
+            return  # not yet eligible, and nobody privileged reacted
         try:
             posted = await target.send(content=content, embed=embed)
         except (nextcord.Forbidden, nextcord.NotFound):
@@ -107,7 +154,8 @@ async def post_or_edit(bot, config, message, count, source_channel):
             original_message_id=message.id,
             original_channel_id=message.channel.id,
             author_id=message.author.id,
-            posted_message_id=posted.id, star_count=count)
+            posted_message_id=posted.id, star_count=count,
+            bypassed_role_id=bypassed_now)
         return
 
     # Already posted: refresh the existing repost's count in place.
@@ -116,6 +164,9 @@ async def post_or_edit(bot, config, message, count, source_channel):
         await posted.edit(content=content, embed=embed)
     except (nextcord.Forbidden, nextcord.NotFound):
         return  # post deleted/unreachable — admin action, nothing to refresh
+    # `bypassed_role_id` is deliberately NOT passed here. It records what first put
+    # the entry on the board and is written on insert only; `upsert_entry` ignores
+    # it on update anyway.
     starboard_helper.upsert_entry(
         config_id=config.id, guild_id=config.guild_id,
         original_message_id=message.id,

@@ -1,6 +1,6 @@
 """Tests for the pure starboard helpers: ``reaction_count`` (count extraction),
-``member_has_bypass_role`` (the bypass predicate) and ``messages.starboard_embed``
-(the repost embed). No mocks, no I/O."""
+``member_has_bypass_role`` (the bypass predicate) and the ``messages`` builders
+for the repost embed and content line. No mocks, no I/O."""
 import datetime
 from types import SimpleNamespace
 
@@ -133,6 +133,39 @@ def test_starboard_content_renders_emoji_count_and_source():
         '⭐ **× 6** · [Source ↗](http://jump)'
     assert messages.starboard_content('<:blob:12345>', 5, 'http://j') == \
         '<:blob:12345> **× 5** · [Source ↗](http://j)'
+
+
+def test_starboard_content_appends_bypass_note_as_subtext():
+    # `-#` is Discord subtext markdown; it renders small and muted directly under
+    # the star line, and only works in message content (never in an embed).
+    assert messages.starboard_content('⭐', 1, 'http://jump', bypass_note='why it is here') == \
+        '⭐ **× 1** · [Source ↗](http://jump)\n-# why it is here'
+
+
+def test_starboard_content_without_note_is_byte_identical_to_single_line():
+    # Backward compatibility is a hard requirement: an ordinary post's content must
+    # not gain so much as a trailing newline from the new parameter.
+    plain = messages.starboard_content('⭐', 6, 'http://jump')
+    assert plain == messages.starboard_content('⭐', 6, 'http://jump', bypass_note=None)
+    assert plain == messages.starboard_content('⭐', 6, 'http://jump', bypass_note='')
+    assert '\n' not in plain
+
+
+def test_starboard_bypass_note_names_the_role():
+    assert messages.starboard_bypass_note('Moderator', 5) == \
+        'Someone with the **Moderator** role bypassed the 5-reaction threshold.'
+
+
+def test_starboard_bypass_note_falls_back_when_role_unresolvable():
+    # A deleted role (or a cold guild cache) must not render the word `None`.
+    note = messages.starboard_bypass_note(None, 5)
+    assert note == 'Someone with a privileged role bypassed the 5-reaction threshold.'
+    assert 'None' not in note
+
+
+def test_starboard_bypass_note_uses_the_boards_own_threshold():
+    assert messages.starboard_bypass_note('Mod', 12) == \
+        'Someone with the **Mod** role bypassed the 12-reaction threshold.'
 
 
 def test_starboard_embed_sets_image_when_image_attachment_present():

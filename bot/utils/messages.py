@@ -16,13 +16,38 @@ def message_has_image(message: nextcord.Message):
     return attachments_has_image or attachments_has_video or embeds_has_image or embeds_has_video
 
 
-def starboard_content(emoji_display: str, count: int, jump_url: str) -> str:
+def starboard_content(emoji_display: str, count: int, jump_url: str,
+                      bypass_note: str | None = None) -> str:
     """The ``{emoji} **× {count}** · [Source ↗](url)`` line that leads the starboard
     repost *message* (not the embed). Everything that needs to render as a real
     link or a real emoji lives here: a custom-emoji mention and a markdown
     hyperlink both render in message content but not in an embed footer (mention →
-    raw ``<:name:id>`` text) or footer (no links at all)."""
-    return f'{emoji_display} **× {count}** · [Source ↗]({jump_url})'
+    raw ``<:name:id>`` text) or footer (no links at all).
+
+    ``bypass_note`` is appended as a second line when a below-threshold post owes
+    its place to a bypass role (see ``starboard_bypass_note``). Omitted, the
+    returned string is byte-identical to the single-line form.
+    """
+    line = f'{emoji_display} **× {count}** · [Source ↗]({jump_url})'
+    if bypass_note:
+        # `-#` is Discord subtext markdown: small, muted, rendered directly under
+        # the star line. It only works in message content, not in an embed.
+        line += f'\n-# {bypass_note}'
+    return line
+
+
+def starboard_bypass_note(role_name: str | None, threshold: int) -> str:
+    """Why a below-threshold message is on the board. Falls back to an unnamed
+    phrasing when the role can no longer be resolved (deleted role / cold cache)
+    — better a vague note than a note that says ``None``.
+
+    The role name renders as plain bold text, never a ``<@&id>`` mention, so the
+    line pings nobody and needs no ``allowed_mentions`` handling. It is not
+    escaped: role names are admin-controlled, the same trust the existing
+    custom-emoji rendering already assumes.
+    """
+    who = f'the **{role_name}** role' if role_name else 'a privileged role'
+    return f'Someone with {who} bypassed the {threshold}-reaction threshold.'
 
 
 def starboard_embed(message: nextcord.Message, source_channel) -> nextcord.Embed:
