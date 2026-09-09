@@ -1,10 +1,16 @@
 """Tests for the /starboard command cog's testable units.
 
-Full slash-command round-trips need a live interaction, so we test the extracted
+Full slash-command round-trips need a live gateway, so we test the extracted
 logic instead: the pure emoji parser, custom-emoji validation against a guild, the
 label/display/embed builders, and the create/update/remove paths through
 ``starboard_helper`` (asserting both DB state and that the per-guild cache is
 invalidated on every mutation).
+
+The ``add``/``edit`` callbacks that own the bypass-role branches are additionally
+driven directly via ``cog.add.callback(...)`` with a fake interaction — the same
+stand-in ``tests/test_starboard_list_view.py`` uses for ``list``. Every option has
+to be passed explicitly there: an unpassed one keeps its ``SlashOption`` default
+object rather than the ``None`` Discord would send.
 """
 from types import SimpleNamespace
 
@@ -117,9 +123,14 @@ def test_emoji_label_custom_uses_name_not_mention():
 
 
 def _config(id=1, target_channel_id=10, emoji='⭐', emoji_id=None,
-            threshold=5, enabled=True):
+            threshold=5, enabled=True, bypass_role_id=None):
     return SimpleNamespace(id=id, target_channel_id=target_channel_id, emoji=emoji,
-                           emoji_id=emoji_id, threshold=threshold, enabled=enabled)
+                           emoji_id=emoji_id, threshold=threshold, enabled=enabled,
+                           bypass_role_id=bypass_role_id)
+
+
+def _role(id=77, name='Mods', default=False):
+    return SimpleNamespace(id=id, name=name, is_default=lambda: default)
 
 
 def test_board_summary_standard_format():
@@ -162,6 +173,87 @@ def test_board_label_truncated_to_limit():
     assert len(label) <= sc._AUTOCOMPLETE_LABEL_MAX
 
 
+# --- bypass_role_ref --------------------------------------------------------
+
+
+def test_bypass_role_ref_none_when_board_has_no_bypass_role():
+    assert sc.bypass_role_ref(_config(bypass_role_id=None)) is None
+
+
+def test_bypass_role_ref_markdown_is_the_role_mention():
+    # Markdown contexts render `<@&id>` as the role pill; an embed can't ping.
+    assert sc.bypass_role_ref(_config(bypass_role_id=77)) == '<@&77>'
+
+
+def test_bypass_role_ref_plain_resolves_name_from_guild():
+    guild = _FakeGuild({}, {77: 'Mods'})
+    assert sc.bypass_role_ref(_config(bypass_role_id=77), guild,
+                              markdown=False) == '@Mods'
+
+
+def test_bypass_role_ref_plain_falls_back_to_id_when_role_is_gone():
+    # Deleting a role in Discord doesn't clear the column, so the label degrades
+    # to the raw id rather than rendering `@None`.
+    guild = _FakeGuild({}, {})
+    assert sc.bypass_role_ref(_config(bypass_role_id=77), guild,
+                              markdown=False) == '@77'
+
+
+def test_bypass_role_ref_plain_falls_back_to_id_without_a_guild():
+    assert sc.bypass_role_ref(_config(bypass_role_id=77), None,
+                              markdown=False) == '@77'
+
+
+# --- bypass_role_error ------------------------------------------------------
+
+
+def test_bypass_role_error_none_when_no_role_supplied():
+    assert sc.bypass_role_error(None) is None
+
+
+def test_bypass_role_error_none_for_an_ordinary_role():
+    assert sc.bypass_role_error(_role(default=False)) is None
+
+
+def test_bypass_role_error_rejects_everyone():
+    # `Member.roles` always contains the guild's default role, so @everyone as a
+    # bypass role would make every reaction skip the threshold.
+    error = sc.bypass_role_error(_role(name='@everyone', default=True))
+    assert error is not None
+    assert '@everyone' in error
+
+
+# --- board_summary / board_label with a bypass role -------------------------
+
+
+def test_board_summary_appends_bypass_segment_last():
+    summary = sc.board_summary(_config(), '<#10>', role_ref='<@&77>')
+    assert summary == '<#10> | ⭐ | **≥ 5** | bypass <@&77>'
+
+
+def test_board_summary_plain_appends_bypass_segment():
+    summary = sc.board_summary(_config(), '#general', markdown=False,
+                               role_ref='@Mods')
+    assert summary == '#general | ⭐ | ≥ 5 | bypass @Mods'
+
+
+def test_board_label_carries_resolved_bypass_role_name():
+    guild = _FakeGuild({}, {77: 'Mods'})
+    label = sc.board_label(_config(bypass_role_id=77), channel_name='general',
+                           guild=guild)
+    assert label == '#general | ⭐ | ≥ 5 | bypass @Mods'
+
+
+def test_board_label_with_bypass_role_still_respects_the_length_limit():
+    # A long channel name eats the trailing bypass segment — the length bound
+    # wins. Asserted on its own fixture: "contains @Mods" and "fits the limit"
+    # cannot both hold here.
+    guild = _FakeGuild({}, {77: 'Mods'})
+    label = sc.board_label(_config(bypass_role_id=77), channel_name='x' * 200,
+                           guild=guild)
+    assert len(label) <= sc._AUTOCOMPLETE_LABEL_MAX
+
+
 # --- build_list_embeds ------------------------------------------------------
 
 
@@ -194,22 +286,38 @@ def test_build_list_embeds_empty():
     assert sc.build_list_embeds([]) == []
 
 
+def test_build_list_embeds_shows_the_bypass_role():
+    embeds = sc.build_list_embeds([_config(bypass_role_id=77)])
+    assert embeds[0].description.splitlines()[0] == '1. <#10> | ⭐ | **≥ 5** | bypass <@&77>'
+
+
+def test_build_list_embeds_keeps_disabled_after_the_bypass_segment():
+    embeds = sc.build_list_embeds([_config(bypass_role_id=77, enabled=False)])
+    line = embeds[0].description.splitlines()[0]
+    assert line.endswith('| bypass <@&77> | disabled')
+
+
 # --- _board_choices autocomplete filtering ----------------------------------
 
 
 class _FakeGuild:
-    def __init__(self, channels):
+    def __init__(self, channels, roles=None):
         self._channels = channels  # {channel_id: name}
+        self._roles = roles or {}  # {role_id: name}
 
     def get_channel(self, cid):
         name = self._channels.get(cid)
         return SimpleNamespace(name=name) if name else None
 
+    def get_role(self, rid):
+        name = self._roles.get(rid)
+        return SimpleNamespace(id=rid, name=name) if name else None
+
 
 class _FakeAcInteraction:
-    def __init__(self, guild_id, channels):
+    def __init__(self, guild_id, channels, roles=None):
         self.guild_id = guild_id
-        self.guild = _FakeGuild(channels)
+        self.guild = _FakeGuild(channels, roles)
 
 
 def test_board_choices_filters_by_channel_name():
@@ -238,6 +346,16 @@ def test_board_choices_drops_unresolved_channels_when_filtering():
     starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐')
     interaction = _FakeAcInteraction(1, {})  # channel can't be resolved
     assert sc.StarboardCommands._board_choices(interaction, 'book') == {}
+
+
+def test_board_choices_labels_resolve_the_bypass_role_through_the_guild():
+    # `_board_choices` must hand the guild to `board_label`, or the label falls
+    # back to the raw role id.
+    starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐',
+                                bypass_role_id=77)
+    interaction = _FakeAcInteraction(1, {10: 'book-club'}, {77: 'Mods'})
+    label = next(iter(sc.StarboardCommands._board_choices(interaction)))
+    assert label == '#book-club | ⭐ | ≥ 5 | bypass @Mods'
 
 
 # --- create/update/remove through the helper (DB + cache invalidation) ------
@@ -308,3 +426,154 @@ def test_resolve_board_rejects_malformed_and_missing_ids():
     interaction = SimpleNamespace(guild_id=1)
     assert sc.StarboardCommands._resolve_board(interaction, 'not-an-int') is None
     assert sc.StarboardCommands._resolve_board(interaction, '99999') is None
+
+
+# --- add / edit callbacks: the bypass-role branches --------------------------
+
+
+class _FakeCmdInteraction:
+    """Minimal stand-in for a slash interaction: records what would be sent and
+    resolves the guild bits ``add``/``edit`` reach for."""
+
+    def __init__(self, guild_id=1, roles=None):
+        self.guild_id = guild_id
+        self.guild = SimpleNamespace(
+            emojis=[], me=object(),
+            get_channel=lambda cid: None,
+            get_role=lambda rid: SimpleNamespace(id=rid, name=(roles or {}).get(rid)))
+        self.sent = []
+
+    async def send(self, **kwargs):
+        self.sent.append(kwargs)
+
+    @property
+    def last_description(self):
+        return self.sent[-1]['embed'].description
+
+
+def _fake_channel(id=10):
+    # `_perms_warning` needs a permissions object; grant both so the confirmation
+    # carries no trailing warning.
+    return SimpleNamespace(
+        id=id, mention=f'<#{id}>',
+        permissions_for=lambda _me: SimpleNamespace(send_messages=True,
+                                                    embed_links=True))
+
+
+async def _run_add(interaction, **kw):
+    cog = sc.StarboardCommands(bot=None)
+    kw.setdefault('channel', _fake_channel())
+    kw.setdefault('emoji', '⭐')
+    kw.setdefault('threshold', 5)
+    kw.setdefault('role', None)
+    await cog.add.callback(cog, interaction, **kw)
+
+
+async def _run_edit(interaction, config, **kw):
+    cog = sc.StarboardCommands(bot=None)
+    kw.setdefault('threshold', None)
+    kw.setdefault('enabled', None)
+    kw.setdefault('channel', None)
+    kw.setdefault('emoji', None)
+    kw.setdefault('role', None)
+    kw.setdefault('clear_role', None)
+    await cog.edit.callback(cog, interaction, starboard=str(config.id), **kw)
+
+
+@pytest.mark.asyncio
+async def test_add_persists_the_bypass_role_and_echoes_it():
+    interaction = _FakeCmdInteraction()
+    await _run_add(interaction, role=_role(id=77, name='Mods'))
+    stored = starboard_helper.get_configs(1)[0]
+    assert stored.bypass_role_id == 77
+    assert 'bypass <@&77>' in interaction.last_description
+
+
+@pytest.mark.asyncio
+async def test_add_without_a_role_leaves_the_board_unbypassed():
+    interaction = _FakeCmdInteraction()
+    await _run_add(interaction)
+    assert starboard_helper.get_configs(1)[0].bypass_role_id is None
+    assert 'bypass' not in interaction.last_description
+
+
+@pytest.mark.asyncio
+async def test_add_rejects_everyone_and_writes_nothing():
+    interaction = _FakeCmdInteraction()
+    await _run_add(interaction, role=_role(id=1, name='@everyone', default=True))
+    assert starboard_helper.get_configs(1) == []
+    assert interaction.sent[-1]['ephemeral'] is True
+    assert '@everyone' in interaction.last_description
+
+
+@pytest.mark.asyncio
+async def test_edit_sets_the_bypass_role_and_confirms_it():
+    config = starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐')
+    interaction = _FakeCmdInteraction()
+    await _run_edit(interaction, config, role=_role(id=77, name='Mods'))
+    assert starboard_helper.get_config(config.id).bypass_role_id == 77
+    # Without the role_ref on the edit confirmation this reports success without
+    # echoing the value it just set.
+    assert 'bypass <@&77>' in interaction.last_description
+
+
+@pytest.mark.asyncio
+async def test_edit_clear_role_nulls_the_column():
+    config = starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐',
+                                         bypass_role_id=77)
+    interaction = _FakeCmdInteraction()
+    await _run_edit(interaction, config, clear_role=True)
+    assert starboard_helper.get_config(config.id).bypass_role_id is None
+    assert 'bypass' not in interaction.last_description
+
+
+@pytest.mark.asyncio
+async def test_edit_omitting_clear_role_leaves_the_bypass_role_alone():
+    # An unsupplied optional bool arrives as None, which must be a no-op rather
+    # than a clear — otherwise `/starboard edit threshold:8` silently unbypasses.
+    config = starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐',
+                                         bypass_role_id=77)
+    interaction = _FakeCmdInteraction()
+    await _run_edit(interaction, config, threshold=8)
+    stored = starboard_helper.get_config(config.id)
+    assert stored.bypass_role_id == 77
+    assert stored.threshold == 8
+
+
+@pytest.mark.asyncio
+async def test_edit_rejects_role_and_clear_role_together_without_writing():
+    config = starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐',
+                                         bypass_role_id=77, threshold=5)
+    interaction = _FakeCmdInteraction()
+    await _run_edit(interaction, config, role=_role(id=88, name='Helpers'),
+                    clear_role=True, threshold=9)
+    stored = starboard_helper.get_config(config.id)
+    assert stored.bypass_role_id == 77  # untouched
+    assert stored.threshold == 5        # the whole edit was refused
+    assert interaction.sent[-1]['ephemeral'] is True
+    assert 'not both' in interaction.last_description
+
+
+@pytest.mark.asyncio
+async def test_edit_rejects_everyone_and_writes_nothing():
+    config = starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐',
+                                         threshold=5)
+    interaction = _FakeCmdInteraction()
+    await _run_edit(interaction, config,
+                    role=_role(id=1, name='@everyone', default=True), threshold=9)
+    stored = starboard_helper.get_config(config.id)
+    assert stored.bypass_role_id is None
+    assert stored.threshold == 5
+    assert interaction.sent[-1]['ephemeral'] is True
+    assert '@everyone' in interaction.last_description
+
+
+@pytest.mark.asyncio
+async def test_remove_confirmation_names_the_bypass_role():
+    config = starboard_helper.add_config(guild_id=1, target_channel_id=10, emoji='⭐',
+                                         bypass_role_id=77)
+    cog = sc.StarboardCommands(bot=None)
+    interaction = _FakeCmdInteraction()
+    await cog.remove.callback(cog, interaction, starboard=str(config.id))
+    assert 'bypass <@&77>' in interaction.last_description
+    assert starboard_helper.get_config(config.id) is None

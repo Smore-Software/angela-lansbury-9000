@@ -45,7 +45,38 @@ def emoji_label(config) -> str:
     return config.emoji
 
 
-def board_summary(config, channel_ref: str, *, markdown: bool = True) -> str:
+def bypass_role_ref(config, guild=None, *, markdown: bool = True) -> str | None:
+    """Rendered bypass role for ``board_summary``, or ``None`` when the board has
+    none. Markdown contexts get the ``<@&id>`` mention — it renders as the role
+    pill, and an embed description can never ping. Plain-text contexts
+    (autocomplete labels) get ``@Name`` resolved from the guild, falling back to
+    the raw id when the role is gone, mirroring how ``emoji_label`` degrades."""
+    if config.bypass_role_id is None:
+        return None
+    if markdown:
+        return f'<@&{config.bypass_role_id}>'
+    role = guild.get_role(config.bypass_role_id) if guild else None
+    return f'@{role.name}' if role else f'@{config.bypass_role_id}'
+
+
+def bypass_role_error(role) -> str | None:
+    """Validation message for a proposed bypass role, or ``None`` when it is fine.
+    Extracted from the command bodies so it is unit-testable, exactly like
+    ``custom_emoji_belongs_to_guild``.
+
+    ``@everyone`` is rejected because ``Member.roles`` unconditionally includes
+    the guild's default role, so every reaction would clear the bypass check and
+    the threshold would stop meaning anything."""
+    if role is None:
+        return None
+    if role.is_default():
+        return ('`@everyone` can\'t be a bypass role — every reaction would '
+                'skip the threshold.')
+    return None
+
+
+def board_summary(config, channel_ref: str, *, markdown: bool = True,
+                  role_ref: str | None = None) -> str:
     """Canonical one-line board description, standardized across the feature set
     (list, autocomplete, confirmations): ``channel | emoji | ≥ N`` with the
     threshold bolded in markdown contexts. The board id is omitted — it is
@@ -53,18 +84,30 @@ def board_summary(config, channel_ref: str, *, markdown: bool = True) -> str:
     ``<#id>`` mention in embeds/messages, a plain ``#name`` in autocomplete labels.
     The ``markdown`` flag also picks the emoji rendering: a custom-emoji mention
     only shows as the emoji in markdown contexts, so plain-text labels use the
-    ``:name:`` form instead."""
+    ``:name:`` form instead.
+
+    ``role_ref`` is the already-rendered bypass role (see ``bypass_role_ref``),
+    appended as a trailing ``| bypass @Role`` segment. Omitted — the case for
+    every board without one — the output is character-identical to the
+    pre-bypass format."""
     threshold = f'**≥ {config.threshold}**' if markdown else f'≥ {config.threshold}'
     emoji = emoji_display(config) if markdown else emoji_label(config)
-    return f'{channel_ref} | {emoji} | {threshold}'
+    parts = [channel_ref, emoji, threshold]
+    if role_ref:
+        parts.append(f'bypass {role_ref}')
+    return ' | '.join(parts)
 
 
-def board_label(config, channel_name: str | None = None) -> str:
+def board_label(config, channel_name: str | None = None, guild=None) -> str:
     """Plain-text autocomplete label in the standardized board format. Uses the
     resolved ``#channel-name`` when known, falling back to a channel mention.
-    Truncated to Discord's autocomplete label limit."""
+    ``guild`` resolves a bypass role to its ``@Name``. Truncated to Discord's
+    autocomplete label limit — the trailing bypass segment is the first thing a
+    very long channel name eats, which is the intended trade: the length bound
+    wins."""
     channel_ref = f'#{channel_name}' if channel_name else f'<#{config.target_channel_id}>'
-    label = board_summary(config, channel_ref, markdown=False)
+    label = board_summary(config, channel_ref, markdown=False,
+                          role_ref=bypass_role_ref(config, guild, markdown=False))
     if len(label) > _AUTOCOMPLETE_LABEL_MAX:
         label = label[:_AUTOCOMPLETE_LABEL_MAX - 1] + '…'
     return label
@@ -74,13 +117,15 @@ def build_list_embeds(configs) -> list:
     """Build one embed per page of a guild's boards as a numbered Markdown list,
     chunked at ``_LIST_BOARDS_PER_PAGE`` boards each (``list`` paginates only when
     needed). Each item uses the standardized board format; disabled boards carry a
-    trailing ``| disabled`` so they stay distinguishable."""
+    trailing ``| disabled`` so they stay distinguishable — kept last so a board
+    with a bypass role reads ``#chan | ⭐ | ≥ 5 | bypass @Mod | disabled``."""
     embeds = []
     for start in range(0, len(configs), _LIST_BOARDS_PER_PAGE):
         chunk = configs[start:start + _LIST_BOARDS_PER_PAGE]
         lines = []
         for offset, config in enumerate(chunk):
-            summary = board_summary(config, f'<#{config.target_channel_id}>')
+            summary = board_summary(config, f'<#{config.target_channel_id}>',
+                                    role_ref=bypass_role_ref(config))
             if not config.enabled:
                 summary += ' | disabled'
             lines.append(f'{start + offset + 1}. {summary}')
@@ -115,7 +160,11 @@ class StarboardCommands(commands.Cog):
                   emoji: str = SlashOption(
                       name='emoji', description='The trigger emoji (unicode or custom).'),
                   threshold: int = SlashOption(
-                      name='threshold', description='Reactions needed to repost.', min_value=1)):
+                      name='threshold', description='Reactions needed to repost.', min_value=1),
+                  role: nextcord.Role = SlashOption(
+                      name='role', required=False,
+                      description='Optional: a reaction from this role posts instantly, '
+                                  'ignoring the threshold.')):
         parsed = self._parse_emoji(emoji)
         if parsed is None:
             return await interaction.send(
@@ -135,11 +184,19 @@ class StarboardCommands(commands.Cog):
                     f'A starboard for {channel.mention} with {emoji} already exists.'),
                 ephemeral=True)
 
+        role_error = bypass_role_error(role)
+        if role_error:
+            return await interaction.send(
+                embed=messages.error(role_error), ephemeral=True)
+
         config = starboard_helper.add_config(
             guild_id=interaction.guild_id, target_channel_id=channel.id,
-            emoji=emoji_name, emoji_id=emoji_id, threshold=threshold)
+            emoji=emoji_name, emoji_id=emoji_id, threshold=threshold,
+            bypass_role_id=role.id if role else None)
 
-        confirmation = f'Starboard added: {board_summary(config, channel.mention)}'
+        summary = board_summary(config, channel.mention,
+                                role_ref=bypass_role_ref(config))
+        confirmation = f'Starboard added: {summary}'
         await interaction.send(
             embed=messages.success(confirmation + self._perms_warning(interaction, channel)),
             ephemeral=True)
@@ -169,11 +226,24 @@ class StarboardCommands(commands.Cog):
                    channel: TextChannel = SlashOption(
                        name='channel', description='New destination channel.', required=False),
                    emoji: str = SlashOption(
-                       name='emoji', description='New trigger emoji.', required=False)):
+                       name='emoji', description='New trigger emoji.', required=False),
+                   role: nextcord.Role = SlashOption(
+                       name='role', description='New threshold-bypass role.',
+                       required=False),
+                   clear_role: bool = SlashOption(
+                       name='clear_role', description='Remove this board\'s bypass role.',
+                       required=False)):
         config = self._resolve_board(interaction, starboard)
         if config is None:
             return await interaction.send(
                 embed=messages.error('No such starboard on this server.'), ephemeral=True)
+
+        # Setting and clearing the bypass role in one invocation is ambiguous, so
+        # it's rejected rather than silently picking a winner.
+        if role is not None and clear_role:
+            return await interaction.send(
+                embed=messages.error('Pass either `role` or `clear_role`, not both.'),
+                ephemeral=True)
 
         updates = {}
         if threshold is not None:
@@ -195,6 +265,18 @@ class StarboardCommands(commands.Cog):
                     ephemeral=True)
             updates['emoji'] = emoji_name
             updates['emoji_id'] = emoji_id
+        # An omitted optional bool arrives as None, which `elif clear_role` treats
+        # the same as False — so leaving it off is a no-op, and the bypass role
+        # rides in the same `updates` dict as everything else, keeping the
+        # "Nothing to update" guard below honest.
+        if role is not None:
+            role_error = bypass_role_error(role)
+            if role_error:
+                return await interaction.send(
+                    embed=messages.error(role_error), ephemeral=True)
+            updates['bypass_role_id'] = role.id
+        elif clear_role:
+            updates['bypass_role_id'] = None
 
         if not updates:
             return await interaction.send(
@@ -216,7 +298,8 @@ class StarboardCommands(commands.Cog):
                     ephemeral=True)
 
         updated = starboard_helper.update_config(config.id, **updates)
-        summary = board_summary(updated, f'<#{updated.target_channel_id}>')
+        summary = board_summary(updated, f'<#{updated.target_channel_id}>',
+                                role_ref=bypass_role_ref(updated))
         await interaction.send(
             embed=messages.success(f'Starboard updated: {summary}'), ephemeral=True)
 
@@ -228,7 +311,8 @@ class StarboardCommands(commands.Cog):
         if config is None:
             return await interaction.send(
                 embed=messages.error('No such starboard on this server.'), ephemeral=True)
-        summary = board_summary(config, f'<#{config.target_channel_id}>')
+        summary = board_summary(config, f'<#{config.target_channel_id}>',
+                                role_ref=bypass_role_ref(config))
         starboard_helper.remove_config(config.id)
         await interaction.send(
             embed=messages.success(f'Starboard removed: {summary}'), ephemeral=True)
@@ -291,7 +375,7 @@ class StarboardCommands(commands.Cog):
             channel_name = channel.name if channel else None
             if query and (channel_name is None or query not in channel_name.lower()):
                 continue
-            choices[board_label(config, channel_name)] = str(config.id)
+            choices[board_label(config, channel_name, interaction.guild)] = str(config.id)
             if len(choices) >= _AUTOCOMPLETE_CHOICE_MAX:
                 break
         return choices
