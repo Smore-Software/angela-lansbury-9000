@@ -18,6 +18,7 @@ os.environ.setdefault('DATABASE_URL', f'sqlite:///{_DB_PATH}')
 
 from types import SimpleNamespace
 
+import nextcord
 import pytest
 
 import db  # noqa: F401,E402  imports DB + every registered model via db/__init__.py
@@ -38,9 +39,18 @@ def _schema():
 @pytest.fixture(autouse=True)
 def db_tx():
     """Wrap every test in a savepoint transaction that rolls back on exit, so
-    tests never leak rows into one another (or the temp file beyond the run)."""
+    tests never leak rows into one another (or the temp file beyond the run).
+
+    Covers both the scoped ``DB.s`` and unit-of-work ``DB.Session()`` sessions:
+    the sessionmaker is bound to the test connection for the test's duration,
+    so a ``DB.Session()`` commit only releases a savepoint inside the test
+    transaction and is rolled back with everything else. Both share one
+    connection, so close a ``DB.Session()`` before touching ``DB.s`` again:
+    interleaving them unwinds their savepoints out of order."""
     tx = DB.test_transaction(savepoint=True)
+    DB.Session.configure(bind=tx.connection)
     yield
+    DB.Session.configure(bind=DB.engine)
     tx.close()
 
 
@@ -121,6 +131,84 @@ def make_message(reactions=None, content='', attachments=None, author=None,
         channel=channel,
         guild=guild,
         jump_url=jump_url,
+    )
+
+
+# --- Guild / channel / role / thread fakes ----------------------------------
+# Channels subclass the real nextcord classes (built via ``__new__``, no
+# gateway) so ``isinstance`` checks hold. ``visible_to`` is the set of role ids
+# whose ``permissions_for(role).view_channel`` is True.
+
+
+class _FakeChannelMixin:
+    def permissions_for(self, obj, /):
+        return SimpleNamespace(view_channel=obj.id in self.visible_to)
+
+
+class FakeTextChannel(_FakeChannelMixin, nextcord.TextChannel):
+    pass
+
+
+class FakeForumChannel(_FakeChannelMixin, nextcord.ForumChannel):
+    pass
+
+
+class FakeVoiceChannel(_FakeChannelMixin, nextcord.VoiceChannel):
+    pass
+
+
+FAKE_GUILD_ID = 1000
+
+
+def make_role(id, administrator=False):
+    """Build a fake ``nextcord.Role``. ``@everyone``'s id is the guild id."""
+    return SimpleNamespace(id=id, permissions=SimpleNamespace(administrator=administrator))
+
+
+def make_channel(id, name='general', visible_to=(FAKE_GUILD_ID,), cls=FakeTextChannel,
+                 guild_id=FAKE_GUILD_ID):
+    """Build a fake guild channel; ``jump_url`` is nextcord's real property."""
+    channel = cls.__new__(cls)
+    channel.id = id
+    channel.name = name
+    channel.guild = SimpleNamespace(id=guild_id)
+    channel.visible_to = set(visible_to)
+    return channel
+
+
+def make_thread(id, parent_id, name='thread', archived=False, private=False, guild_id=FAKE_GUILD_ID):
+    """Build a fake ``nextcord.Thread``."""
+    return SimpleNamespace(
+        id=id,
+        parent_id=parent_id,
+        name=name,
+        archived=archived,
+        is_private=lambda: private,
+        jump_url=f'https://discord.com/channels/{guild_id}/{id}',
+    )
+
+
+def make_guild(categories=(), threads=(), id=FAKE_GUILD_ID, active_threads=None, roles=()):
+    """Build a fake ``nextcord.Guild``.
+
+    ``categories`` is ``by_category()``'s already-ordered return value: a list
+    of ``(category_or_None, [channels])`` tuples. ``threads`` backs the
+    cache-only ``guild.threads``; pass ``active_threads`` (e.g. an AsyncMock)
+    to stub the HTTP call. ``get_channel``/``get_role`` resolve only the
+    channels in ``categories`` and the given ``roles`` (plus @everyone).
+    """
+    default_role = make_role(id)
+    channels = {c.id: c for _, chans in categories for c in chans}
+    roles_by_id = {r.id: r for r in (default_role, *roles)}
+    return SimpleNamespace(
+        id=id,
+        default_role=default_role,
+        me=SimpleNamespace(id=1),
+        by_category=lambda: [(cat, list(chans)) for cat, chans in categories],
+        threads=list(threads),
+        active_threads=active_threads,
+        get_channel=channels.get,
+        get_role=roles_by_id.get,
     )
 
 
