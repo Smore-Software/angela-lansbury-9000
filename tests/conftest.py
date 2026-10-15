@@ -18,6 +18,7 @@ os.environ.setdefault('DATABASE_URL', f'sqlite:///{_DB_PATH}')
 
 from types import SimpleNamespace
 
+import nextcord
 import pytest
 
 import db  # noqa: F401,E402  imports DB + every registered model via db/__init__.py
@@ -130,6 +131,77 @@ def make_message(reactions=None, content='', attachments=None, author=None,
         channel=channel,
         guild=guild,
         jump_url=jump_url,
+    )
+
+
+# --- Guild / channel / role / thread fakes ----------------------------------
+# Channels subclass the real nextcord classes (built via ``__new__``, no
+# gateway) so ``isinstance`` checks hold. ``visible_to`` is the set of role ids
+# whose ``permissions_for(role).view_channel`` is True.
+
+
+class _FakeChannelMixin:
+    def permissions_for(self, obj, /):
+        return SimpleNamespace(view_channel=obj.id in self.visible_to)
+
+
+class FakeTextChannel(_FakeChannelMixin, nextcord.TextChannel):
+    pass
+
+
+class FakeForumChannel(_FakeChannelMixin, nextcord.ForumChannel):
+    pass
+
+
+class FakeVoiceChannel(_FakeChannelMixin, nextcord.VoiceChannel):
+    pass
+
+
+FAKE_GUILD_ID = 1000
+
+
+def make_role(id, administrator=False):
+    """Build a fake ``nextcord.Role``. ``@everyone``'s id is the guild id."""
+    return SimpleNamespace(id=id, permissions=SimpleNamespace(administrator=administrator))
+
+
+def make_channel(id, name='general', visible_to=(FAKE_GUILD_ID,), cls=FakeTextChannel,
+                 guild_id=FAKE_GUILD_ID):
+    """Build a fake guild channel; ``jump_url`` is nextcord's real property."""
+    channel = cls.__new__(cls)
+    channel.id = id
+    channel.name = name
+    channel.guild = SimpleNamespace(id=guild_id)
+    channel.visible_to = set(visible_to)
+    return channel
+
+
+def make_thread(id, parent_id, name='thread', archived=False, private=False, guild_id=FAKE_GUILD_ID):
+    """Build a fake ``nextcord.Thread``."""
+    return SimpleNamespace(
+        id=id,
+        parent_id=parent_id,
+        name=name,
+        archived=archived,
+        is_private=lambda: private,
+        jump_url=f'https://discord.com/channels/{guild_id}/{id}',
+    )
+
+
+def make_guild(categories=(), threads=(), id=FAKE_GUILD_ID, active_threads=None):
+    """Build a fake ``nextcord.Guild``.
+
+    ``categories`` is ``by_category()``'s already-ordered return value: a list
+    of ``(category_or_None, [channels])`` tuples. ``threads`` backs the
+    cache-only ``guild.threads``; pass ``active_threads`` (e.g. an AsyncMock)
+    to stub the HTTP call.
+    """
+    return SimpleNamespace(
+        id=id,
+        default_role=make_role(id),
+        by_category=lambda: [(cat, list(chans)) for cat, chans in categories],
+        threads=list(threads),
+        active_threads=active_threads,
     )
 
 
