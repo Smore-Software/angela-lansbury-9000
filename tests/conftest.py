@@ -188,20 +188,27 @@ def make_thread(id, parent_id, name='thread', archived=False, private=False, gui
     )
 
 
-def make_guild(categories=(), threads=(), id=FAKE_GUILD_ID, active_threads=None):
+def make_guild(categories=(), threads=(), id=FAKE_GUILD_ID, active_threads=None, roles=()):
     """Build a fake ``nextcord.Guild``.
 
     ``categories`` is ``by_category()``'s already-ordered return value: a list
     of ``(category_or_None, [channels])`` tuples. ``threads`` backs the
     cache-only ``guild.threads``; pass ``active_threads`` (e.g. an AsyncMock)
-    to stub the HTTP call.
+    to stub the HTTP call. ``get_channel``/``get_role`` resolve only the
+    channels in ``categories`` and the given ``roles`` (plus @everyone).
     """
+    default_role = make_role(id)
+    channels = {c.id: c for _, chans in categories for c in chans}
+    roles_by_id = {r.id: r for r in (default_role, *roles)}
     return SimpleNamespace(
         id=id,
-        default_role=make_role(id),
+        default_role=default_role,
+        me=SimpleNamespace(id=1),
         by_category=lambda: [(cat, list(chans)) for cat, chans in categories],
         threads=list(threads),
         active_threads=active_threads,
+        get_channel=channels.get,
+        get_role=roles_by_id.get,
     )
 
 

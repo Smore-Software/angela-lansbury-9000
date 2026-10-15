@@ -1,7 +1,8 @@
-__all__ = ['AnniversaryCommands', 'AutoDeleteCommands', 'AutoDeleteType', 'ImageMessageDeleteCommands', 'StarboardCommands']
+__all__ = ['AnniversaryCommands', 'AutoDeleteCommands', 'AutoDeleteType', 'ImageMessageDeleteCommands', 'StarboardCommands', 'ThreadMapCommands']
 
 from bot.cogs.anniversary.anniversary_commands import AnniversaryCommands
 from bot.cogs.auto_delete.auto_delete_commands import AutoDeleteCommands
 from bot.cogs.image_message_delete.image_message_delete_commands import ImageMessageDeleteCommands
 from bot.cogs.starboard.starboard_commands import StarboardCommands
+from bot.cogs.thread_map.thread_map_commands import ThreadMapCommands
 from db import AutoDeleteType
