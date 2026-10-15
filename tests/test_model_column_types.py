@@ -25,6 +25,7 @@ from db.model.rolling_message_log import RollingMessageLog
 from db.model.santa_participant import SantaParticipant
 from db.model.starboard_config import StarboardConfig
 from db.model.starboard_entry import StarboardEntry
+from db.model.thread_map import ThreadMap, ThreadMapExcludedChannel, ThreadMapRole
 from db.model.user_activity import UserActivity
 from db.model.user_channel_settings import UserChannelSettings
 from db.model.user_settings import UserSettings
@@ -93,6 +94,15 @@ SNOWFLAKE_COLUMNS = [
     (RollingMessageLog, 'message_id'),
     (RollingMessageLog, 'guild_id'),
     (RollingMessageLog, 'author_id'),
+
+    (ThreadMap, 'guild_id'),
+    (ThreadMap, 'channel_id'),
+    (ThreadMap, 'message_id'),
+    (ThreadMap, 'created_by'),
+
+    (ThreadMapRole, 'role_id'),
+
+    (ThreadMapExcludedChannel, 'channel_id'),
 ]
 
 

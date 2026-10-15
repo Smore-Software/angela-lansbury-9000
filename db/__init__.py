@@ -22,5 +22,6 @@ from db.model.starboard_config import *
 from db.model.starboard_entry import *
 from db.model.anniversary import *
 from db.model.anniversary_channel import *
+from db.model.thread_map import *
 
 alembic = Alembic(DB, 'db/migrations')

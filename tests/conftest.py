@@ -38,9 +38,18 @@ def _schema():
 @pytest.fixture(autouse=True)
 def db_tx():
     """Wrap every test in a savepoint transaction that rolls back on exit, so
-    tests never leak rows into one another (or the temp file beyond the run)."""
+    tests never leak rows into one another (or the temp file beyond the run).
+
+    Covers both the scoped ``DB.s`` and unit-of-work ``DB.Session()`` sessions:
+    the sessionmaker is bound to the test connection for the test's duration,
+    so a ``DB.Session()`` commit only releases a savepoint inside the test
+    transaction and is rolled back with everything else. Both share one
+    connection, so close a ``DB.Session()`` before touching ``DB.s`` again:
+    interleaving them unwinds their savepoints out of order."""
     tx = DB.test_transaction(savepoint=True)
+    DB.Session.configure(bind=tx.connection)
     yield
+    DB.Session.configure(bind=DB.engine)
     tx.close()
 
 
