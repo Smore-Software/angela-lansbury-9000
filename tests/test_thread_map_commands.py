@@ -114,7 +114,7 @@ async def test_posts_then_records_map(cog, rendered):
     channel.send.assert_awaited_once()
     sent = channel.send.await_args.kwargs
     assert sent['embed'].description == 'page one'
-    assert sent['embed'].footer.text == 'Page 1/2 · Last refreshed'
+    assert sent['embed'].footer.text == 'Page 1 of 2, last refreshed'
     assert sent['view'].is_persistent()
 
     (thread_map,) = _maps()
@@ -203,7 +203,7 @@ async def test_on_ready_registers_persistent_view(cog):
     cog.bot.add_view.assert_called_once()
     (view,), _ = cog.bot.add_view.call_args
     assert isinstance(view, ThreadMapView) and view.is_persistent()
-    assert len(view.children) == 3
+    assert len(view.children) == 4
 
 
 async def test_on_ready_reports_failure(cog, monkeypatch):

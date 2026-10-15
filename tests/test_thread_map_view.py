@@ -16,6 +16,7 @@ from tests.conftest import make_channel, make_guild, make_role, make_thread
 
 REFRESHED = datetime(2026, 10, 14, 12, 30, tzinfo=timezone.utc)
 MESSAGE_ID = 777
+ALL_IDS = {'thread_map:prev', 'thread_map:next', 'thread_map:refresh', 'thread_map:edit'}
 
 
 @pytest.fixture(autouse=True)
@@ -62,13 +63,13 @@ def _refresh_rebuilt(page_count=1):
 async def test_registration_form_is_persistent_with_all_buttons():
     view = ThreadMapView()
     assert view.is_persistent()
-    assert {c.custom_id for c in view.children} == {'thread_map:prev', 'thread_map:next', 'thread_map:refresh'}
+    assert {c.custom_id for c in view.children} == ALL_IDS
     assert not any(c.disabled for c in view.children)
 
 
 async def test_single_page_drops_nav_buttons():
     view = ThreadMapView(0, 1)
-    assert [c.custom_id for c in view.children] == ['thread_map:refresh']
+    assert [c.custom_id for c in view.children] == ['thread_map:refresh', 'thread_map:edit']
 
 
 async def test_first_of_many_disables_prev_only():
@@ -85,7 +86,7 @@ async def test_view_refresh_is_not_shadowed_by_a_button():
     view = ThreadMapView(0, 3)
     components = [_component_factory(row) for row in view.to_components()]
     view.refresh(components)
-    assert {c.custom_id for c in view.children} == {'thread_map:prev', 'thread_map:next', 'thread_map:refresh'}
+    assert {c.custom_id for c in view.children} == ALL_IDS
 
 
 # --- paging ------------------------------------------------------------------
@@ -103,7 +104,7 @@ async def test_next_page_updates_and_edits_with_stored_snapshot(monkeypatch):
     kwargs = interaction.response.edit_message.await_args.kwargs
     assert kwargs['embed'].description == 'p1'
     assert kwargs['embed'].timestamp == REFRESHED
-    assert kwargs['embed'].footer.text == 'Page 2/3 · Last refreshed'
+    assert kwargs['embed'].footer.text == 'Page 2 of 3, last refreshed'
     assert not kwargs['view'].prev_page.disabled
     fetch.assert_not_awaited()
 
@@ -305,3 +306,47 @@ def test_render_with_threads_skips_unknown_roles():
 
     assert service.render_with_threads(guild, threads, [500, 999], []).channel_count == 1
     assert service.render_with_threads(guild, threads, [999], []).pages == ['']
+
+
+# --- edit button -------------------------------------------------------------
+
+def _member(manage_guild):
+    return SimpleNamespace(guild_permissions=SimpleNamespace(manage_guild=manage_guild))
+
+
+async def test_edit_refused_without_manage_guild():
+    _seed()
+    interaction = _interaction()
+    interaction.user = _member(False)
+    interaction.response.send_message = AsyncMock()
+
+    await ThreadMapView().edit_map.callback(interaction)
+
+    assert 'Manage Server' in _sent_description(interaction)
+    assert interaction.send.await_args.kwargs['ephemeral'] is True
+    interaction.response.send_message.assert_not_awaited()
+
+
+async def test_edit_opens_ephemeral_menu_with_summary():
+    from bot.cogs.thread_map.edit_menu_view import EditMenuView
+
+    map_id = _seed()
+    interaction = _interaction()
+    interaction.user = _member(True)
+    interaction.response.send_message = AsyncMock()
+
+    await ThreadMapView().edit_map.callback(interaction)
+
+    kwargs = interaction.response.send_message.await_args.kwargs
+    assert kwargs['ephemeral'] is True
+    assert isinstance(kwargs['view'], EditMenuView) and kwargs['view'].map_id == map_id
+    assert kwargs['view']._interaction is interaction
+    assert kwargs['embed'].title == 'Edit thread map'
+    assert '**Showing channels visible to**: @everyone' in kwargs['embed'].description
+
+
+async def test_edit_unknown_message_reports_untracked():
+    interaction = _interaction(message_id=999)
+    interaction.user = _member(True)
+    await ThreadMapView().edit_map.callback(interaction)
+    assert _sent_description(interaction) == tv.UNTRACKED_TEXT

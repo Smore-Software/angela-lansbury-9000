@@ -70,6 +70,25 @@ class ThreadMapView(nextcord.ui.View):
         except nextcord.HTTPException as e:  # e.g. rate-limited edits on a busy map
             sentry_sdk.capture_exception(e)
 
+    @nextcord.ui.button(label='Edit', style=nextcord.ButtonStyle.grey, custom_id='thread_map:edit', row=0)
+    async def edit_map(self, _: nextcord.ui.Button, interaction: nextcord.Interaction):
+        # default_member_permissions gates the command, not buttons on a public message.
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.send(embed=messages.error('Editing the map needs the Manage Server permission. '
+                                                        'You can still page and refresh it.'), ephemeral=True)
+            return
+        with DB.Session() as session:
+            config = thread_map_helper.get_config_by_message(session, interaction.message.id)
+        if config is None:
+            await interaction.send(embed=messages.error(UNTRACKED_TEXT), ephemeral=True)
+            return
+        # Imported here: the edit menu imports this module for ThreadMapView.
+        from bot.cogs.thread_map.edit_menu_view import EditMenuView, summary_embed
+        menu = EditMenuView(config)
+        await interaction.response.send_message(embed=summary_embed(interaction.guild, config), view=menu,
+                                                ephemeral=True)
+        menu._interaction = interaction
+
     async def _turn_page(self, interaction: nextcord.Interaction, step: int):
         with DB.Session() as session:
             config = thread_map_helper.get_config_by_message(session, interaction.message.id)
@@ -87,10 +106,15 @@ class ThreadMapView(nextcord.ui.View):
         )
 
     async def on_error(self, error: Exception, item: nextcord.ui.Item, interaction: nextcord.Interaction) -> None:
-        # Callbacks only use DB.Session(), never DB.s, so there is no session to recover.
-        sentry_sdk.capture_exception(error)
-        try:
-            await interaction.send(embed=messages.error('Something went wrong with this thread map. Please try again.'),
-                                   ephemeral=True)
-        except nextcord.HTTPException:
-            pass
+        await report_view_error(error, interaction)
+
+
+async def report_view_error(error: Exception, interaction: nextcord.Interaction) -> None:
+    """Shared ``on_error`` for the public view and the edit menu."""
+    # Callbacks only use DB.Session(), never DB.s, so there is no session to recover.
+    sentry_sdk.capture_exception(error)
+    try:
+        await interaction.send(embed=messages.error('Something went wrong with this thread map. Please try again.'),
+                               ephemeral=True)
+    except nextcord.HTTPException:
+        pass

@@ -194,7 +194,7 @@ def test_build_embed():
     embed = r.build_embed('some page', 1, 3, REFRESHED)
     assert embed.title == 'Thread map'
     assert embed.description == 'some page'
-    assert embed.footer.text == 'Page 2/3 · Last refreshed'
+    assert embed.footer.text == 'Page 2 of 3, last refreshed'
     assert embed.timestamp == REFRESHED
     assert embed.color == nextcord.Color.dark_blue()
 
@@ -202,7 +202,7 @@ def test_build_embed():
 def test_build_embed_empty_state():
     embed = r.build_embed('', 0, 1, REFRESHED)
     assert embed.description == 'No active threads match this map.'
-    assert embed.footer.text == 'Page 1/1 · Last refreshed'
+    assert embed.footer.text == 'Page 1 of 1, last refreshed'
 
 
 # --- fetch_active_threads ----------------------------------------------------

@@ -116,7 +116,7 @@ def build_embed(page: str, page_index: int, page_count: int, refreshed_at: datet
                            description=page or EMPTY_MAP_TEXT,
                            color=nextcord.Color.dark_blue(),
                            timestamp=refreshed_at)
-    embed.set_footer(text=f'Page {page_index + 1}/{page_count} · Last refreshed')
+    embed.set_footer(text=f'Page {page_index + 1} of {page_count}, last refreshed')
     return embed
 
 
